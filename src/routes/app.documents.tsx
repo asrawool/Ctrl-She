@@ -3,7 +3,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useEffect } from "react";
 import {
   Upload, FileText, FileSpreadsheet, FileImage, Folder, Search, Filter,
-  Grid3x3, List, Star, MoreVertical, Download, Trash2, History, Tag, Eye,
+  Grid3x3, List, Star, MoreVertical, Download, Trash2, Tag, Eye,
+  RefreshCw, Loader2, AlertCircle, CheckCircle2,
 } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,50 @@ export const Route = createFileRoute("/app/documents")({
   component: Documents,
 });
 
-interface Doc { id: string; name: string; type: "pdf"|"docx"|"xlsx"|"img"; size: number; category: string; tags: string[]; asset: string; version: string; updated: string; starred?: boolean; storagePath?: string; }
+// Matches the `status` column values written by the process-document edge
+// function ("pending" is our own placeholder for "never processed" / null).
+type ProcessingStatus = "pending" | "processing" | "ready" | "error";
+
+interface Doc {
+  id: string; name: string; type: "pdf"|"docx"|"xlsx"|"img"; size: number; category: string;
+  tags: string[]; asset: string; version: string; updated: string; starred?: boolean;
+  storagePath?: string; processingStatus?: ProcessingStatus; chunkCount?: number; errorMessage?: string | null;
+}
+
+// process-document responds immediately with { status: "processing" } and
+// finishes the real work in the background (EdgeRuntime.waitUntil), so we
+// poll the documents row (and count its chunks) until it leaves
+// "processing", rather than trusting the invoke response.
+async function pollDocumentStatus(
+  documentId: string,
+  { intervalMs = 2000, timeoutMs = 60000 }: { intervalMs?: number; timeoutMs?: number } = {},
+): Promise<{ status: ProcessingStatus; chunkCount: number; errorMessage: string | null }> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const { data: row, error } = await supabase
+      .from("documents")
+      .select("status, error_message")
+      .eq("id", documentId)
+      .single();
+
+    if (error) throw error;
+
+    const status = (row?.status as ProcessingStatus) ?? "pending";
+    if (status === "ready" || status === "error") {
+      const { count } = await supabase
+        .from("document_chunks")
+        .select("*", { count: "exact", head: true })
+        .eq("document_id", documentId);
+
+      return { status, chunkCount: count ?? 0, errorMessage: row?.error_message ?? null };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error(`Timed out waiting for document ${documentId} to finish processing`);
+}
 
 const SEED: Doc[] = [
   { id:"1", name:"KSB Pump P-401 Manual.pdf", type:"pdf", size:2400000, category:"Manuals", tags:["Pump","OEM"], asset:"P-401", version:"v2.3", updated:"2d ago", starred:true },
@@ -49,49 +93,106 @@ function Documents() {
   const [selected, setSelected] = useState<Doc | null>(null);
   const [uploads, setUploads] = useState<{name:string;pct:number}[]>([]);
   const [drag, setDrag] = useState(false);
+  const [reprocessing, setReprocessing] = useState<Record<string, boolean>>({});
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const fetchDocs = async () => {
+    const { data, error } = await supabase
+      .from("documents")
+      .select("*")
+      .order("uploaded_at", { ascending: false });
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+    if (!data) return;
+
+    const fetched: Doc[] = data.map((row) => {
+      const type = row.name.endsWith(".pdf")
+        ? "pdf"
+        : row.name.match(/\.(xlsx?|csv)$/)
+          ? "xlsx"
+          : row.name.match(/\.docx?$/)
+            ? "docx"
+            : "img";
+
+      return {
+        id: row.id,
+        name: row.name,
+        type: type as Doc["type"],
+        size: 0,
+        category: row.category ?? "Manuals",
+        tags: row.tags ?? [],
+        asset: row.asset ?? "—",
+        version: row.version ?? "v1.0",
+        updated: row.uploaded_at ? new Date(row.uploaded_at).toLocaleDateString() : "—",
+        storagePath: row.storage_path,
+        processingStatus: (row.status as ProcessingStatus) ?? "pending",
+        errorMessage: row.error_message ?? null,
+        // `documents` doesn't store a chunk count column; the real number
+        // is fetched lazily once a doc is opened or (re)processed, see
+        // fetchChunkCount / handleReprocess below.
+        chunkCount: undefined,
+      };
+    });
+
+    setDocs(fetched);
+
+    // Backfill chunk counts for anything that's already marked ready, so
+    // the badges don't all read "0 chunks" until the user reprocesses.
+    const readyIds = fetched.filter((d) => d.processingStatus === "ready").map((d) => d.id);
+    for (const id of readyIds) {
+      const { count } = await supabase
+        .from("document_chunks")
+        .select("*", { count: "exact", head: true })
+        .eq("document_id", id);
+      setDocs((d) => d.map((x) => (x.id === id ? { ...x, chunkCount: count ?? 0 } : x)));
+    }
+  };
+
   useEffect(() => {
-    const fetchDocs = async () => {
-      const { data, error } = await supabase
-        .from("documents")
-        .select("*")
-        .order("uploaded_at", { ascending: false });
-
-      if (error) {
-        console.error(error);
-        return;
-      }
-      if (!data) return;
-
-      const fetched: Doc[] = data.map((row) => {
-        const type = row.name.endsWith(".pdf")
-          ? "pdf"
-          : row.name.match(/\.(xlsx?|csv)$/)
-            ? "xlsx"
-            : row.name.match(/\.docx?$/)
-              ? "docx"
-              : "img";
-
-        return {
-          id: row.id,
-          name: row.name,
-          type: type as Doc["type"],
-          size: 0,
-          category: row.category ?? "Manuals",
-          tags: row.tags ?? [],
-          asset: row.asset ?? "—",
-          version: row.version ?? "v1.0",
-          updated: row.uploaded_at ? new Date(row.uploaded_at).toLocaleDateString() : "—",
-          storagePath: row.storage_path,
-        };
-      });
-
-      setDocs(fetched);
-    };
-
     fetchDocs();
   }, []);
+
+  const handleReprocess = async (doc: Doc) => {
+    setReprocessing((r) => ({ ...r, [doc.id]: true }));
+    setDocs((d) =>
+      d.map((x) => (x.id === doc.id ? { ...x, processingStatus: "processing" } : x)),
+    );
+
+    try {
+      const { error: invokeError } = await supabase.functions.invoke("process-document", {
+        body: { documentId: doc.id },
+      });
+
+      if (invokeError) {
+        console.error("Reprocess failed to start:", invokeError);
+        setDocs((d) =>
+          d.map((x) => (x.id === doc.id ? { ...x, processingStatus: "error" } : x)),
+        );
+        return;
+      }
+
+      // The function kicks off processing in the background and returns
+      // immediately, so we poll the row until it settles.
+      const { status, chunkCount, errorMessage } = await pollDocumentStatus(doc.id);
+
+      setDocs((d) =>
+        d.map((x) => (x.id === doc.id ? { ...x, processingStatus: status, chunkCount, errorMessage } : x)),
+      );
+      setSelected((s) =>
+        s?.id === doc.id ? { ...s, processingStatus: status, chunkCount, errorMessage } : s,
+      );
+    } catch (err) {
+      console.error("Unexpected reprocess error:", err);
+      setDocs((d) =>
+        d.map((x) => (x.id === doc.id ? { ...x, processingStatus: "error" } : x)),
+      );
+    } finally {
+      setReprocessing((r) => ({ ...r, [doc.id]: false }));
+    }
+  };
 
   const filtered = docs
     .filter((d) => cat==="All" || d.category===cat)
@@ -157,6 +258,8 @@ function Documents() {
             version: "v1.0",
             updated: "just now",
             storagePath: filePath,
+            processingStatus: "processing",
+            chunkCount: 0,
           },
           ...d,
         ]);
@@ -164,14 +267,29 @@ function Documents() {
         // Kick off chunking + embedding in the background.
         // We don't await this — the upload UI shouldn't wait on it,
         // and any failure here shouldn't undo the upload that already succeeded.
+        // process-document itself returns immediately and finishes the real
+        // work async, so we poll the row for the final status/chunk count.
         console.log("About to call process-document for:", document.id);
         supabase.functions
           .invoke("process-document", { body: { documentId: document.id } })
-          .then(({ data, error }) => {
-            if (error) {
-              console.error("Document processing failed:", error);
-            } else {
-              console.log("Document processed:", data);
+          .then(async ({ error: invokeError }) => {
+            if (invokeError) {
+              console.error("Document processing failed to start:", invokeError);
+              setDocs((d) =>
+                d.map((x) => (x.id === document.id ? { ...x, processingStatus: "error" } : x)),
+              );
+              return;
+            }
+
+            try {
+              const { status, chunkCount, errorMessage } = await pollDocumentStatus(document.id);
+              setDocs((d) =>
+                d.map((x) =>
+                  x.id === document.id ? { ...x, processingStatus: status, chunkCount, errorMessage } : x,
+                ),
+              );
+            } catch (pollErr) {
+              console.error("Timed out waiting for document processing:", pollErr);
             }
           });
       } catch (err) {
@@ -305,19 +423,35 @@ function Documents() {
           ) : view === "list" ? (
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
-                <tr><th className="text-left px-4 py-2.5 font-semibold">Name</th><th className="text-left px-4 py-2.5 font-semibold">Category</th><th className="text-left px-4 py-2.5 font-semibold">Asset</th><th className="text-left px-4 py-2.5 font-semibold">Version</th><th className="text-left px-4 py-2.5 font-semibold">Updated</th><th /></tr>
+                <tr><th className="text-left px-4 py-2.5 font-semibold">Name</th><th className="text-left px-4 py-2.5 font-semibold">Category</th><th className="text-left px-4 py-2.5 font-semibold">Asset</th><th className="text-left px-4 py-2.5 font-semibold">Version</th><th className="text-left px-4 py-2.5 font-semibold">RAG Index</th><th className="text-left px-4 py-2.5 font-semibold">Updated</th><th /></tr>
               </thead>
               <tbody>
                 {filtered.map((d) => {
                   const I = ICONS[d.type];
+                  const isReprocessing = !!reprocessing[d.id];
                   return (
                     <tr key={d.id} onClick={()=>setSelected(d)} className="border-t border-border hover:bg-muted/40 cursor-pointer">
                       <td className="px-4 py-2.5 flex items-center gap-2.5"><I className="h-4 w-4 text-accent shrink-0" /><span className="truncate">{d.name}</span>{d.starred && <Star className="h-3 w-3 fill-warning text-warning" />}</td>
                       <td className="px-4 py-2.5"><span className="rounded-full bg-muted px-2 py-0.5 text-[10px]">{d.category}</span></td>
                       <td className="px-4 py-2.5 text-muted-foreground">{d.asset}</td>
                       <td className="px-4 py-2.5 text-muted-foreground">{d.version}</td>
+                      <td className="px-4 py-2.5"><StatusBadge status={d.processingStatus} chunkCount={d.chunkCount} errorMessage={d.errorMessage} /></td>
                       <td className="px-4 py-2.5 text-muted-foreground">{d.updated}</td>
-                      <td className="px-4 py-2.5"><button className="grid h-7 w-7 place-items-center rounded hover:bg-muted"><MoreVertical className="h-3.5 w-3.5" /></button></td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            disabled={isReprocessing}
+                            onClick={() => handleReprocess(d)}
+                            title="Reprocess this document (re-run extraction, OCR fallback and embedding)"
+                            className="grid h-7 w-7 place-items-center rounded hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isReprocessing
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                              : <RefreshCw className="h-3.5 w-3.5" />}
+                          </button>
+                          <button className="grid h-7 w-7 place-items-center rounded hover:bg-muted"><MoreVertical className="h-3.5 w-3.5" /></button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -327,14 +461,30 @@ function Documents() {
             <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((d) => {
                 const I = ICONS[d.type];
+                const isReprocessing = !!reprocessing[d.id];
                 return (
                   <div key={d.id} onClick={()=>setSelected(d)} className="rounded-xl border border-border p-4 hover:border-accent cursor-pointer transition">
                     <div className="flex items-start justify-between">
                       <div className="grid h-10 w-10 place-items-center rounded-lg bg-accent/10 text-accent"><I className="h-5 w-5" /></div>
-                      {d.starred && <Star className="h-4 w-4 fill-warning text-warning" />}
+                      <div className="flex items-center gap-1">
+                        {d.starred && <Star className="h-4 w-4 fill-warning text-warning" />}
+                        <button
+                          disabled={isReprocessing}
+                          onClick={(e) => { e.stopPropagation(); handleReprocess(d); }}
+                          title="Reprocess this document"
+                          className="grid h-7 w-7 place-items-center rounded hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isReprocessing
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                            : <RefreshCw className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
                     </div>
                     <div className="mt-3 font-semibold text-sm truncate">{d.name}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">{d.category} · {d.updated}</div>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <div className="text-xs text-muted-foreground">{d.category} · {d.updated}</div>
+                      <StatusBadge status={d.processingStatus} chunkCount={d.chunkCount} errorMessage={d.errorMessage} />
+                    </div>
                   </div>
                 );
               })}
@@ -359,6 +509,10 @@ function Documents() {
                 <Field label="Category" value={selected.category} />
                 <Field label="Equipment" value={selected.asset} />
                 <Field label="Last Updated" value={selected.updated} />
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">RAG Index</span>
+                  <StatusBadge status={selected.processingStatus} chunkCount={selected.chunkCount} errorMessage={selected.errorMessage} />
+                </div>
                 <div>
                   <div className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5">Tags</div>
                   <div className="flex flex-wrap gap-1">
@@ -369,7 +523,17 @@ function Documents() {
               <div className="mt-5 grid grid-cols-2 gap-2">
                 <Button variant="outline" size="sm" onClick={() => handlePreview(selected)}><Eye className="mr-1.5 h-3.5 w-3.5" /> Preview</Button>
                 <Button variant="outline" size="sm" onClick={() => handleDownload(selected)}><Download className="mr-1.5 h-3.5 w-3.5" /> Download</Button>
-                <Button variant="outline" size="sm" disabled title="Version history coming soon"><History className="mr-1.5 h-3.5 w-3.5" /> Versions</Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!!reprocessing[selected.id]}
+                  onClick={() => handleReprocess(selected)}
+                  title="Re-run text extraction, OCR fallback and embedding for this document"
+                >
+                  {reprocessing[selected.id]
+                    ? <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Reprocessing…</>
+                    : <><RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Reprocess</>}
+                </Button>
                 <Button variant="outline" size="sm" className="text-destructive" onClick={() => handleDelete(selected)}><Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete</Button>
               </div>
             </>
@@ -379,6 +543,46 @@ function Documents() {
         </aside>
       </div>
     </>
+  );
+}
+
+function StatusBadge({
+  status,
+  chunkCount,
+  errorMessage,
+}: {
+  status?: ProcessingStatus;
+  chunkCount?: number;
+  errorMessage?: string | null;
+}) {
+  if (status === "processing") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
+        <Loader2 className="h-2.5 w-2.5 animate-spin" /> Processing
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive"
+        title={errorMessage ?? undefined}
+      >
+        <AlertCircle className="h-2.5 w-2.5" /> Failed
+      </span>
+    );
+  }
+  if (status === "ready" && (chunkCount ?? 0) > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald/10 px-2 py-0.5 text-[10px] font-semibold text-emerald">
+        <CheckCircle2 className="h-2.5 w-2.5" /> {chunkCount} chunks
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+      <AlertCircle className="h-2.5 w-2.5" /> 0 chunks
+    </span>
   );
 }
 
