@@ -27,6 +27,8 @@ import {
   Trash,
   Pencil,
   Filter,
+  Pin,
+  Bookmark,
 } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -65,9 +67,18 @@ type Conv = {
   id: string;
   title: string;
   is_starred?: boolean;
+  is_pinned?: boolean;
   created_at?: string;
   updated_at?: string;
   messages: Msg[];
+};
+
+type Note = {
+  id: string;
+  user_id: string;
+  content: string;
+  source_conversation_id: string | null;
+  created_at?: string;
 };
 
 interface SpeechRecognitionInstance {
@@ -135,6 +146,11 @@ function Copilot() {
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+  // Notes states
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [showNotes, setShowNotes] = useState(false);
+  const [customNote, setCustomNote] = useState("");
+
   // Attachment states
   const [attachments, setAttachments] = useState<
     { name: string; path: string; size: number; type?: string }[]
@@ -163,6 +179,27 @@ function Copilot() {
       setGroundedCount(count);
     } catch (err) {
       console.error("Grounded count load failed:", err);
+    }
+  };
+
+  // Fetch private notes
+  const fetchNotes = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from("copilot_notes")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setNotes((data as unknown as Note[]) || []);
+    } catch (err) {
+      console.error("Failed to load notes:", err);
     }
   };
 
@@ -296,6 +333,7 @@ function Copilot() {
   useEffect(() => {
     fetchConvs();
     fetchGroundedCount();
+    fetchNotes();
 
     // Speech recognition setup
     if (typeof window !== "undefined") {
@@ -576,6 +614,103 @@ function Copilot() {
     }
   };
 
+  const handleTogglePin = async (id: string, currentPinned: boolean) => {
+    const nextPinned = !currentPinned;
+    try {
+      const { error } = await supabase
+        .from("conversations")
+        .update({ is_pinned: nextPinned })
+        .eq("id", id);
+      if (error) throw error;
+
+      setConvs((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, is_pinned: nextPinned } : c)),
+      );
+      toast.success(nextPinned ? "Chat pinned" : "Chat unpinned");
+    } catch (err) {
+      const error = err as Error;
+      console.error("Failed to pin chat:", error);
+      if (error.message?.includes("pin up to 5 chats")) {
+        toast.error("You can only pin up to 5 chats. Unpin one first.");
+      } else {
+        toast.error("Failed to update pin state: " + error.message);
+      }
+    }
+  };
+
+  const handleSaveNote = async (
+    content: string,
+    sourceConvId?: string | null,
+  ) => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not logged in");
+
+      const { data, error } = await supabase
+        .from("copilot_notes")
+        .insert({
+          user_id: user.id,
+          content: content,
+          source_conversation_id: sourceConvId || null,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      setNotes((prev) => [data as Note, ...prev]);
+      toast.success("Saved to Notes");
+    } catch (err) {
+      const error = err as Error;
+      toast.error("Failed to save note: " + error.message);
+    }
+  };
+
+  const handleDeleteNote = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from("copilot_notes")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+
+      setNotes((prev) => prev.filter((n) => n.id !== id));
+      toast.success("Note deleted");
+    } catch (err) {
+      const error = err as Error;
+      toast.error("Failed to delete note: " + error.message);
+    }
+  };
+
+  const handleAddCustomNote = async () => {
+    if (!customNote.trim()) return;
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not logged in");
+
+      const { data, error } = await supabase
+        .from("copilot_notes")
+        .insert({
+          user_id: user.id,
+          content: customNote.trim(),
+          source_conversation_id: activeId || null,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      setNotes((prev) => [data as Note, ...prev]);
+      setCustomNote("");
+      toast.success("Note added");
+    } catch (err) {
+      const error = err as Error;
+      toast.error("Failed to add note: " + error.message);
+    }
+  };
+
   const handleFeedback = async (msgId: string, rating: "up" | "down") => {
     try {
       const {
@@ -673,6 +808,20 @@ function Copilot() {
       if (userError) throw userError;
 
       // Optimistic updates
+      const userMsgObj = {
+        id: userMsg.id,
+        role: "user" as const,
+        text: userMsgContent,
+        attachments: currentAttachments,
+      };
+
+      const aiTempMsgObj = {
+        id: "temp-ai",
+        role: "ai" as const,
+        text: "",
+        loading: true,
+      };
+
       if (isNew) {
         setActiveId(currentCid);
         const { data: listData } = await supabase
@@ -681,26 +830,26 @@ function Copilot() {
           .eq("user_id", user.id)
           .order("updated_at", { ascending: false });
         setConvs(listData || []);
+
+        const found = (listData || []).find((c) => c.id === currentCid);
+        setActiveConv(
+          found
+            ? {
+                ...found,
+                messages: [userMsgObj, aiTempMsgObj],
+              }
+            : {
+                id: currentCid,
+                title: userMsgContent.slice(0, 40) || "New chat",
+                messages: [userMsgObj, aiTempMsgObj],
+              },
+        );
       } else {
         setActiveConv((prev: Conv | null) =>
           prev
             ? {
                 ...prev,
-                messages: [
-                  ...prev.messages,
-                  {
-                    id: userMsg.id,
-                    role: "user",
-                    text: userMsgContent,
-                    attachments: currentAttachments,
-                  },
-                  {
-                    id: "temp-ai",
-                    role: "ai",
-                    text: "",
-                    loading: true,
-                  },
-                ],
+                messages: [...prev.messages, userMsgObj, aiTempMsgObj],
               }
             : null,
         );
@@ -782,6 +931,9 @@ function Copilot() {
     return true;
   });
 
+  const pinnedConvs = filtered.filter((c) => c.is_pinned === true);
+  const unpinnedConvs = filtered.filter((c) => !c.is_pinned);
+
   const groupedConvs = (() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -799,7 +951,7 @@ function Copilot() {
       Older: [],
     };
 
-    filtered.forEach((c) => {
+    unpinnedConvs.forEach((c) => {
       if (!c.updated_at) return;
       const date = new Date(c.updated_at);
       if (date >= today) {
@@ -816,6 +968,156 @@ function Copilot() {
     return groups;
   })();
 
+  const renderChatItem = (c: Conv) => {
+    const isSelected = c.id === activeId;
+    const isStarred = c.is_starred === true;
+    const isPinned = c.is_pinned === true;
+    const isRenaming = renamingId === c.id;
+    const isMenuOpen = activeMenuId === c.id;
+
+    if (isRenaming) {
+      return (
+        <div
+          key={c.id}
+          className="flex items-center w-full rounded-lg px-2 py-1 bg-muted/30 border border-border/40"
+        >
+          <MessageSquare className="h-3.5 w-3.5 shrink-0 text-accent mr-1.5" />
+          <input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                handleRenameSubmit(c.id);
+              } else if (e.key === "Escape") {
+                setRenamingId(null);
+              }
+            }}
+            onBlur={() => handleRenameSubmit(c.id)}
+            autoFocus
+            className="flex-1 bg-transparent text-xs outline-none border-none p-0 focus:ring-0"
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={c.id}
+        className={`group relative flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs transition ${
+          isSelected
+            ? "bg-accent/10 text-accent font-medium"
+            : "hover:bg-muted text-foreground"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setActiveId(c.id)}
+          className="flex flex-1 items-center gap-1.5 overflow-hidden text-left"
+        >
+          <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70 group-hover:opacity-100" />
+          <span className="truncate flex-1 pr-16">{c.title}</span>
+        </button>
+
+        <div className="absolute right-1.5 flex items-center gap-1">
+          {/* Pin Icon button */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleTogglePin(c.id, isPinned);
+            }}
+            className={`p-0.5 rounded hover:bg-background/80 transition ${
+              isPinned
+                ? "text-accent opacity-100"
+                : "text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground"
+            }`}
+            title={isPinned ? "Unpin chat" : "Pin chat"}
+          >
+            <Pin
+              className="h-3 w-3"
+              fill={isPinned ? "currentColor" : "none"}
+            />
+          </button>
+
+          {/* Star Icon button */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleStar(c.id, isStarred);
+            }}
+            className={`p-0.5 rounded hover:bg-background/80 transition ${
+              isStarred
+                ? "text-amber-500 opacity-100"
+                : "text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground"
+            }`}
+            title={isStarred ? "Unstar chat" : "Star chat"}
+          >
+            <Star
+              className="h-3 w-3"
+              fill={isStarred ? "currentColor" : "none"}
+            />
+          </button>
+
+          {/* Options Menu button */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveMenuId(isMenuOpen ? null : c.id);
+              }}
+              className={`p-0.5 rounded hover:bg-background/80 transition text-muted-foreground hover:text-foreground ${
+                isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+              }`}
+            >
+              <MoreVertical className="h-3 w-3" />
+            </button>
+
+            {isMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-20"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveMenuId(null);
+                  }}
+                />
+                <div className="absolute right-0 mt-1 bg-card border border-border rounded-lg shadow-xl py-1 z-30 w-24 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenamingId(c.id);
+                      setRenameValue(c.title);
+                      setActiveMenuId(null);
+                    }}
+                    className="flex w-full items-center gap-1 px-2 py-1 hover:bg-muted text-left"
+                  >
+                    <Pencil className="h-2.5 w-2.5" />
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirmId(c.id);
+                      setActiveMenuId(null);
+                    }}
+                    className="flex w-full items-center gap-1 px-2 py-1 hover:bg-red-500/10 text-red-500 text-left"
+                  >
+                    <Trash className="h-2.5 w-2.5" />
+                    Delete
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <PageHeader
@@ -823,7 +1125,13 @@ function Copilot() {
         description="Interact with the ground-truth knowledge base of all plant manuals, engineering specifications, and historical incident logs."
       />
 
-      <div className="grid gap-4 lg:grid-cols-[280px_1fr] h-[calc(100vh-8rem)]">
+      <div
+        className={`grid gap-4 h-[calc(100vh-8rem)] transition-all duration-300 ${
+          showNotes
+            ? "lg:grid-cols-[280px_1fr_300px]"
+            : "lg:grid-cols-[280px_1fr]"
+        }`}
+      >
         {/* Sidebar */}
         <aside className="hidden lg:flex flex-col rounded-2xl border border-border bg-card overflow-hidden">
           <div className="p-3 border-b border-border">
@@ -911,170 +1219,56 @@ function Copilot() {
                 No chats found
               </div>
             ) : (
-              Object.entries(groupedConvs).map(([section, items]) => {
-                if (items.length === 0) return null;
-                const isCollapsed = collapsedSections[section];
-                return (
-                  <div key={section} className="space-y-1 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCollapsedSections((prev) => ({
-                          ...prev,
-                          [section]: !prev[section],
-                        }));
-                      }}
-                      className="flex items-center justify-between w-full px-2 py-1 text-left text-[10px] font-bold text-muted-foreground hover:text-foreground uppercase tracking-wider transition"
-                    >
-                      <div className="flex items-center gap-1">
-                        {isCollapsed ? (
-                          <ChevronRight className="h-3 w-3" />
-                        ) : (
-                          <ChevronDown className="h-3 w-3" />
-                        )}
-                        <span>
-                          {section} ({items.length})
-                        </span>
-                      </div>
-                    </button>
-                    {!isCollapsed && (
-                      <div className="space-y-0.5 pl-1">
-                        {items.map((c) => {
-                          const isSelected = c.id === activeId;
-                          const isStarred = c.is_starred === true;
-                          const isRenaming = renamingId === c.id;
-                          const isMenuOpen = activeMenuId === c.id;
-
-                          if (isRenaming) {
-                            return (
-                              <div
-                                key={c.id}
-                                className="flex items-center w-full rounded-lg px-2 py-1 bg-muted/30 border border-border/40"
-                              >
-                                <MessageSquare className="h-3.5 w-3.5 shrink-0 text-accent mr-1.5" />
-                                <input
-                                  value={renameValue}
-                                  onChange={(e) =>
-                                    setRenameValue(e.target.value)
-                                  }
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      handleRenameSubmit(c.id);
-                                    } else if (e.key === "Escape") {
-                                      setRenamingId(null);
-                                    }
-                                  }}
-                                  onBlur={() => handleRenameSubmit(c.id)}
-                                  autoFocus
-                                  className="flex-1 bg-transparent text-xs outline-none border-none p-0 focus:ring-0"
-                                />
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <div
-                              key={c.id}
-                              className={`group relative flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs transition ${
-                                isSelected
-                                  ? "bg-accent/10 text-accent font-medium"
-                                  : "hover:bg-muted text-foreground"
-                              }`}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => setActiveId(c.id)}
-                                className="flex flex-1 items-center gap-1.5 overflow-hidden text-left"
-                              >
-                                <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70 group-hover:opacity-100" />
-                                <span className="truncate flex-1 pr-10">
-                                  {c.title}
-                                </span>
-                              </button>
-
-                              <div className="absolute right-1.5 flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleToggleStar(c.id, isStarred);
-                                  }}
-                                  className={`p-0.5 rounded hover:bg-background/80 transition ${
-                                    isStarred
-                                      ? "text-amber-500 opacity-100"
-                                      : "text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground"
-                                  }`}
-                                >
-                                  <Star
-                                    className="h-3 w-3"
-                                    fill={isStarred ? "currentColor" : "none"}
-                                  />
-                                </button>
-
-                                <div className="relative">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setActiveMenuId(isMenuOpen ? null : c.id);
-                                    }}
-                                    className={`p-0.5 rounded hover:bg-background/80 transition text-muted-foreground hover:text-foreground ${
-                                      isMenuOpen
-                                        ? "opacity-100"
-                                        : "opacity-0 group-hover:opacity-100"
-                                    }`}
-                                  >
-                                    <MoreVertical className="h-3 w-3" />
-                                  </button>
-
-                                  {isMenuOpen && (
-                                    <>
-                                      <div
-                                        className="fixed inset-0 z-20"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setActiveMenuId(null);
-                                        }}
-                                      />
-                                      <div className="absolute right-0 mt-1 bg-card border border-border rounded-lg shadow-xl py-1 z-30 w-24 text-[10px]">
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setRenamingId(c.id);
-                                            setRenameValue(c.title);
-                                            setActiveMenuId(null);
-                                          }}
-                                          className="flex w-full items-center gap-1 px-2 py-1 hover:bg-muted text-left"
-                                        >
-                                          <Pencil className="h-2.5 w-2.5" />
-                                          Rename
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setDeleteConfirmId(c.id);
-                                            setActiveMenuId(null);
-                                          }}
-                                          className="flex w-full items-center gap-1 px-2 py-1 hover:bg-red-500/10 text-red-500 text-left"
-                                        >
-                                          <Trash className="h-2.5 w-2.5" />
-                                          Delete
-                                        </button>
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+              <>
+                {/* Render Pinned section if there are pinned chats */}
+                {pinnedConvs.length > 0 && (
+                  <div className="space-y-1 mb-3">
+                    <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                      <Pin className="h-3 w-3 text-accent" />
+                      <span>Pinned Chats ({pinnedConvs.length})</span>
+                    </div>
+                    <div className="space-y-0.5 pl-1">
+                      {pinnedConvs.map((c) => renderChatItem(c))}
+                    </div>
                   </div>
-                );
-              })
+                )}
+
+                {/* Render Grouped Sections */}
+                {Object.entries(groupedConvs).map(([section, items]) => {
+                  if (items.length === 0) return null;
+                  const isCollapsed = collapsedSections[section];
+                  return (
+                    <div key={section} className="space-y-1 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCollapsedSections((prev) => ({
+                            ...prev,
+                            [section]: !prev[section],
+                          }));
+                        }}
+                        className="flex items-center justify-between w-full px-2 py-1 text-left text-[10px] font-bold text-muted-foreground hover:text-foreground uppercase tracking-wider transition"
+                      >
+                        <div className="flex items-center gap-1">
+                          {isCollapsed ? (
+                            <ChevronRight className="h-3 w-3" />
+                          ) : (
+                            <ChevronDown className="h-3 w-3" />
+                          )}
+                          <span>
+                            {section} ({items.length})
+                          </span>
+                        </div>
+                      </button>
+                      {!isCollapsed && (
+                        <div className="space-y-0.5 pl-1">
+                          {items.map((c) => renderChatItem(c))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
             )}
           </div>
           <div className="p-3 border-t border-border">
@@ -1105,9 +1299,27 @@ function Copilot() {
                 )}
               </div>
             </div>
-            <button className="grid h-8 w-8 place-items-center rounded-lg hover:bg-muted">
-              <Download className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setShowNotes(!showNotes)}
+                className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-semibold transition ${
+                  showNotes
+                    ? "bg-accent/15 border-accent text-accent"
+                    : "hover:bg-muted border-border text-muted-foreground hover:text-foreground"
+                }`}
+                title="Toggle Notes Panel"
+              >
+                <Bookmark className="h-3.5 w-3.5" />
+                <span>Notes ({notes.length})</span>
+              </button>
+              <button
+                className="grid h-8 w-8 place-items-center rounded-lg hover:bg-muted"
+                title="Export Conversation"
+              >
+                <Download className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -1144,6 +1356,7 @@ function Copilot() {
                     msg={m}
                     onRegen={() => send(activeConv.messages.at(-2)?.text ?? "")}
                     onFeedback={(rating) => handleFeedback(m.id, rating)}
+                    onSaveNote={(content) => handleSaveNote(content, activeId)}
                   />
                 ))}
               </AnimatePresence>
@@ -1256,6 +1469,97 @@ function Copilot() {
             </p>
           </div>
         </div>
+
+        {showNotes && (
+          <aside className="flex flex-col rounded-2xl border border-border bg-card overflow-hidden h-full shadow-lg">
+            {/* Notes Header */}
+            <div className="flex items-center justify-between border-b border-border px-4 py-3 bg-muted/20">
+              <div className="flex items-center gap-2">
+                <Bookmark className="h-4 w-4 text-accent" fill="currentColor" />
+                <span className="font-semibold text-sm">My Notes</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNotes(false)}
+                className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Notes List & Add Form */}
+            <div className="flex-1 flex flex-col min-h-0">
+              {/* Add Note Form */}
+              <div className="p-3 border-b border-border bg-muted/5">
+                <div className="flex gap-1.5">
+                  <input
+                    value={customNote}
+                    onChange={(e) => setCustomNote(e.target.value)}
+                    placeholder="Write a custom note..."
+                    className="flex-1 h-8 rounded-lg bg-background border border-border px-2 text-xs outline-none focus:border-accent"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleAddCustomNote();
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    onClick={handleAddCustomNote}
+                    disabled={!customNote.trim()}
+                    className="h-8 px-3 text-xs btn-hero"
+                  >
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              {/* Notes Scrollable area */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+                {notes.length === 0 ? (
+                  <div className="text-center py-8 text-xs text-muted-foreground italic">
+                    No notes saved yet. Add a custom note or click the bookmark
+                    button under AI responses.
+                  </div>
+                ) : (
+                  notes.map((n) => (
+                    <div
+                      key={n.id}
+                      className="group relative rounded-xl border border-border/80 bg-background/50 p-2.5 space-y-1.5 hover:border-accent/40 transition text-xs"
+                    >
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] text-muted-foreground font-mono">
+                          {n.created_at
+                            ? new Date(n.created_at).toLocaleDateString(
+                                undefined,
+                                {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                },
+                              )
+                            : ""}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteNote(n.id)}
+                          className="text-muted-foreground hover:text-red-500 opacity-0 group-hover:opacity-100 transition p-0.5 rounded"
+                          title="Delete note"
+                        >
+                          <Trash className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <div className="text-foreground whitespace-pre-wrap leading-relaxed">
+                        {n.content}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </aside>
+        )}
       </div>
 
       {/* Camera modal */}
@@ -1330,10 +1634,12 @@ function Bubble({
   msg,
   onRegen,
   onFeedback,
+  onSaveNote,
 }: {
   msg: Msg;
   onRegen: () => void;
   onFeedback: (rating: "up" | "down") => void;
+  onSaveNote?: (content: string) => void;
 }) {
   const isUser = msg.role === "user";
   return (
@@ -1436,19 +1742,29 @@ function Bubble({
                       navigator.clipboard.writeText(msg.text);
                       toast.success("Response copied to clipboard");
                     }}
+                    title="Copy"
                   />
-                  <IconBtn i={RefreshCw} onClick={onRegen} />
+                  <IconBtn i={RefreshCw} onClick={onRegen} title="Regenerate" />
                   <IconBtn
                     i={ThumbsUp}
                     active={msg.rating === "up"}
                     onClick={() => onFeedback("up")}
+                    title="Good Response"
                   />
                   <IconBtn
                     i={ThumbsDown}
                     active={msg.rating === "down"}
                     onClick={() => onFeedback("down")}
+                    title="Bad Response"
                   />
-                  <IconBtn i={Volume2} />
+                  <IconBtn
+                    i={Bookmark}
+                    onClick={
+                      onSaveNote ? () => onSaveNote(msg.text) : undefined
+                    }
+                    title="Save to Notes"
+                  />
+                  <IconBtn i={Volume2} title="Read Aloud" />
                 </div>
               </>
             )}
@@ -1463,14 +1779,17 @@ function IconBtn({
   i: I,
   active,
   onClick,
+  title,
 }: {
   i: React.ComponentType<{ className?: string }>;
   active?: boolean;
   onClick?: () => void;
+  title?: string;
 }) {
   return (
     <button
       onClick={onClick}
+      title={title}
       className={`grid h-6 w-6 place-items-center rounded hover:bg-background transition ${active ? "text-accent bg-accent/10" : ""}`}
     >
       <I className="h-3 w-3" />
