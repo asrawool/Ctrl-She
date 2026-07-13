@@ -7,6 +7,22 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+interface Chunk {
+  id: string;
+  document_id: string;
+  content: string;
+  similarity: number;
+  chunk_index: number;
+}
+
+interface Doc {
+  id: string;
+  name: string;
+  category?: string;
+  asset?: string;
+  version?: string;
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -16,18 +32,24 @@ serve(async (req) => {
   try {
     const { question } = await req.json();
     if (!question) {
-      return new Response(JSON.stringify({ error: "Missing question parameter" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Missing question parameter" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const openAiApiKey = Deno.env.get("OPENAI_API_KEY");
     if (!openAiApiKey) {
-      return new Response(JSON.stringify({ error: "Missing OpenAI API Key secret" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Missing OpenAI API Key secret" }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -35,18 +57,21 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // 1. Generate 768-dimension query embedding
-    const embeddingResponse = await fetch("https://api.openai.com/v1/embeddings", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${openAiApiKey}`,
+    const embeddingResponse = await fetch(
+      "https://api.openai.com/v1/embeddings",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${openAiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: "text-embedding-3-small",
+          input: question,
+          dimensions: 768,
+        }),
       },
-      body: JSON.stringify({
-        model: "text-embedding-3-small",
-        input: question,
-        dimensions: 768,
-      }),
-    });
+    );
 
     if (!embeddingResponse.ok) {
       const errText = await embeddingResponse.text();
@@ -57,18 +82,24 @@ serve(async (req) => {
     const queryEmbedding = embeddingData.data[0].embedding;
 
     // 2. Perform similarity search in Postgres
-    const { data: chunks, error: matchError } = await supabase.rpc("match_document_chunks", {
-      query_embedding: queryEmbedding,
-      match_count: 5,
-    });
+    const { data: chunks, error: matchError } = await supabase.rpc(
+      "match_document_chunks",
+      {
+        query_embedding: queryEmbedding,
+        match_count: 5,
+      },
+    );
 
     if (matchError) {
-      throw new Error(`match_document_chunks RPC failed: ${matchError.message}`);
+      throw new Error(
+        `match_document_chunks RPC failed: ${matchError.message}`,
+      );
     }
 
     // 3. Resolve document details for matching chunks
-    const docIds = [...new Set((chunks || []).map((c: any) => c.document_id))];
-    let docs: any[] = [];
+    const chunkList: Chunk[] = chunks || [];
+    const docIds = [...new Set(chunkList.map((c) => c.document_id))];
+    let docs: Doc[] = [];
     if (docIds.length > 0) {
       const { data } = await supabase
         .from("documents")
@@ -78,15 +109,17 @@ serve(async (req) => {
     }
 
     // 4. Construct LLM context and system prompt
-    const context = (chunks || []).map((c: any, index: number) => {
-      const doc = docs.find((d: any) => d.id === c.document_id);
-      return `[Source ${index + 1}]:
+    const context = chunkList
+      .map((c, index: number) => {
+        const doc = docs.find((d) => d.id === c.document_id);
+        return `[Source ${index + 1}]:
 Document ID: ${c.document_id}
 Document Title: ${doc?.name || "Unknown Document"}
 Category: ${doc?.category || "Unknown"}
 Asset/Equipment: ${doc?.asset || "Unknown"}
 Content: ${c.content}`;
-    }).join("\n\n");
+      })
+      .join("\n\n");
 
     const systemPrompt = `You are IntelliPlant AI, an expert industrial plant engineering copilot.
 You have access to the official plant documentation, manuals, SOPs, and incident reports.
@@ -102,21 +135,24 @@ Here is the retrieved context:
 ${context}`;
 
     // 5. Call OpenAI Chat completion
-    const chatResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${openAiApiKey}`,
+    const chatResponse = await fetch(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${openAiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: question },
+          ],
+          temperature: 0.1,
+        }),
       },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: question },
-        ],
-        temperature: 0.1,
-      }),
-    });
+    );
 
     if (!chatResponse.ok) {
       const errText = await chatResponse.text();
@@ -127,8 +163,8 @@ ${context}`;
     const answer = chatData.choices[0].message.content;
 
     // 6. Format sources to return to client
-    const sources = (chunks || []).map((c: any) => {
-      const doc = docs.find((d: any) => d.id === c.document_id);
+    const sources = chunkList.map((c) => {
+      const doc = docs.find((d) => d.id === c.document_id);
       return {
         documentId: c.document_id,
         documentName: doc?.name || "Unknown Document",
@@ -140,9 +176,10 @@ ${context}`;
     return new Response(JSON.stringify({ answer, sources }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (err: any) {
-    console.error("ask-copilot error:", err.message);
-    return new Response(JSON.stringify({ error: err.message }), {
+  } catch (err) {
+    const error = err as Error;
+    console.error("ask-copilot error:", error.message);
+    return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
