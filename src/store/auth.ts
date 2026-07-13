@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { supabase } from "@/lib/supabase";
 
 export type Role =
   | "maintenance_engineer"
@@ -29,7 +30,10 @@ export const ROLES: { id: Role; label: string }[] = [
   { id: "plant_manager", label: "Plant Manager" },
   { id: "maintenance_manager", label: "Maintenance Manager" },
   { id: "document_controller", label: "Document Controller" },
-  { id: "digital_transformation", label: "Industrial Digital Transformation Engineer" },
+  {
+    id: "digital_transformation",
+    label: "Industrial Digital Transformation Engineer",
+  },
   { id: "industry_40", label: "Industry 4.0 Engineer" },
   { id: "other", label: "Other" },
 ];
@@ -44,9 +48,10 @@ interface AuthState {
   otpVerified: boolean;
   faceVerified: boolean;
   authenticated: boolean;
+  isExistingUser: boolean;
   language: string;
   theme: "light" | "dark";
-  setEmail: (e: string) => void;
+  setEmail: (e: string, exists?: boolean) => void;
   setStep: (s: AuthStep) => void;
   setOtpVerified: (v: boolean) => void;
   setFaceVerified: (v: boolean) => void;
@@ -66,14 +71,22 @@ export const useAuth = create<AuthState>()(
       otpVerified: false,
       faceVerified: false,
       authenticated: false,
+      isExistingUser: false,
       language: "en",
       theme: "light",
-      setEmail: (email) => set({ email, step: "otp" }),
+      setEmail: (email, exists = false) =>
+        set({ email, isExistingUser: exists, step: "otp" }),
       setStep: (step) => set({ step }),
       setOtpVerified: (v) => set({ otpVerified: v, step: v ? "face" : "otp" }),
-      setFaceVerified: (v) => set({ faceVerified: v, step: v ? "role" : "face" }),
+      setFaceVerified: (v) =>
+        set({ faceVerified: v, step: v ? "role" : "face" }),
       setRole: (role, customRole) =>
-        set({ role, customRole: customRole ?? null, step: "done", authenticated: true }),
+        set({
+          role,
+          customRole: customRole ?? null,
+          step: "done",
+          authenticated: true,
+        }),
       setLanguage: (language) => set({ language }),
       toggleTheme: () =>
         set((s) => {
@@ -83,7 +96,7 @@ export const useAuth = create<AuthState>()(
           }
           return { theme };
         }),
-      logout: () =>
+      logout: () => {
         set({
           email: null,
           role: null,
@@ -92,8 +105,43 @@ export const useAuth = create<AuthState>()(
           otpVerified: false,
           faceVerified: false,
           authenticated: false,
-        }),
+        });
+        supabase.auth.signOut();
+      },
     }),
-    { name: "intelliplant-auth" }
-  )
+    { name: "intelliplant-auth" },
+  ),
 );
+
+// Subscribe to Supabase Auth state changes to keep authenticated field trustworthy
+if (typeof window !== "undefined") {
+  supabase.auth.onAuthStateChange((event, session) => {
+    const state = useAuth.getState();
+    if (!session) {
+      if (
+        state.authenticated ||
+        state.otpVerified ||
+        state.faceVerified ||
+        state.email
+      ) {
+        useAuth.setState({
+          email: null,
+          role: null,
+          customRole: null,
+          step: "email",
+          otpVerified: false,
+          faceVerified: false,
+          authenticated: false,
+        });
+      }
+    } else {
+      // Session exists. If they finished all the onboarding steps, set authenticated: true
+      const hasCompletedAllSteps = state.step === "done" && state.role !== null;
+      if (hasCompletedAllSteps) {
+        useAuth.setState({ authenticated: true });
+      } else {
+        useAuth.setState({ authenticated: false });
+      }
+    }
+  });
+}

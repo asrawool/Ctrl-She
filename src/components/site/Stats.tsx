@@ -20,7 +20,17 @@ export function Stats() {
   );
 }
 
-function StatCard({ v, s, label, delay }: { v: number; s: string; label: string; delay: number }) {
+function StatCard({
+  v,
+  s,
+  label,
+  delay,
+}: {
+  v: number;
+  s: string;
+  label: string;
+  delay: number;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true });
   const [n, setN] = useState(0);
@@ -46,7 +56,8 @@ function StatCard({ v, s, label, delay }: { v: number; s: string; label: string;
       transition={{ duration: 0.6, delay }}
     >
       <div className="font-display text-5xl md:text-6xl font-bold tracking-tight text-gradient-cyan">
-        {n.toLocaleString()}{s}
+        {n.toLocaleString()}
+        {s}
       </div>
       <div className="mt-2 text-sm text-white/70">{label}</div>
     </motion.div>

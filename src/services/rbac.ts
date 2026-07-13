@@ -15,25 +15,45 @@ export type ModuleKey =
   | "help";
 
 const ALL: ModuleKey[] = [
-  "dashboard","copilot","knowledge","documents","graph",
-  "maintenance","quality","lessons","analytics","notifications","settings","help",
+  "dashboard",
+  "copilot",
+  "knowledge",
+  "documents",
+  "graph",
+  "maintenance",
+  "quality",
+  "lessons",
+  "analytics",
+  "notifications",
+  "settings",
+  "help",
 ];
 
-const BASE: ModuleKey[] = ["dashboard","copilot","knowledge","documents","graph","lessons","notifications","settings","help"];
+const BASE: ModuleKey[] = [
+  "dashboard",
+  "copilot",
+  "knowledge",
+  "documents",
+  "graph",
+  "lessons",
+  "notifications",
+  "settings",
+  "help",
+];
 
 const PERMISSIONS: Record<Role, ModuleKey[]> = {
   plant_manager: ALL,
   maintenance_manager: ALL,
   digital_transformation: ALL,
   industry_40: ALL,
-  maintenance_engineer: [...BASE, "maintenance","analytics"],
-  reliability_engineer: [...BASE, "maintenance","analytics"],
-  plant_ops: [...BASE, "maintenance","quality","analytics"],
-  production_engineer: [...BASE, "maintenance","analytics"],
-  quality_engineer: [...BASE, "quality","analytics"],
-  qa_manager: [...BASE, "quality","analytics"],
-  safety_officer: [...BASE, "quality","analytics"],
-  hse_engineer: [...BASE, "quality","analytics"],
+  maintenance_engineer: [...BASE, "maintenance", "analytics"],
+  reliability_engineer: [...BASE, "maintenance", "analytics"],
+  plant_ops: [...BASE, "maintenance", "quality", "analytics"],
+  production_engineer: [...BASE, "maintenance", "analytics"],
+  quality_engineer: [...BASE, "quality", "analytics"],
+  qa_manager: [...BASE, "quality", "analytics"],
+  safety_officer: [...BASE, "quality", "analytics"],
+  hse_engineer: [...BASE, "quality", "analytics"],
   document_controller: [...BASE, "analytics"],
   other: BASE,
 };

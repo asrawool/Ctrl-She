@@ -3,7 +3,12 @@ const row2 = "Aarya Rawool   •   Mahek Shethiya";
 
 export function Credits() {
   return (
-    <section className="relative py-20 overflow-hidden" style={{ background: "linear-gradient(180deg, #06132a 0%, #071A2E 100%)" }}>
+    <section
+      className="relative py-20 overflow-hidden"
+      style={{
+        background: "linear-gradient(180deg, #06132a 0%, #071A2E 100%)",
+      }}
+    >
       <div className="absolute inset-0 grid-industrial opacity-20" />
       <div className="relative text-center">
         <div className="inline-flex items-center gap-2 rounded-full border border-cyan/30 bg-cyan/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.25em] text-cyan">
@@ -22,11 +27,19 @@ export function Credits() {
   );
 }
 
-function MarqueeRow({ text, direction }: { text: string; direction: "left" | "right" }) {
+function MarqueeRow({
+  text,
+  direction,
+}: {
+  text: string;
+  direction: "left" | "right";
+}) {
   const items = Array.from({ length: 8 }, () => text);
   return (
     <div className="overflow-hidden">
-      <div className={`flex gap-16 whitespace-nowrap ${direction === "left" ? "animate-marquee-left" : "animate-marquee-right"} [width:200%]`}>
+      <div
+        className={`flex gap-16 whitespace-nowrap ${direction === "left" ? "animate-marquee-left" : "animate-marquee-right"} [width:200%]`}
+      >
         {items.map((t, i) => (
           <span
             key={i}

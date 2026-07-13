@@ -44,15 +44,15 @@
   --radius: 0.875rem;
 
   /* Brand palette */
-  --navy: oklch(0.22 0.06 250);          /* #071A2E-ish */
-  --steel: oklch(0.32 0.08 250);         /* #12355B */
-  --cyan: oklch(0.78 0.16 220);          /* #00C2FF */
+  --navy: oklch(0.22 0.06 250); /* #071A2E-ish */
+  --steel: oklch(0.32 0.08 250); /* #12355B */
+  --cyan: oklch(0.78 0.16 220); /* #00C2FF */
   --cyan-strong: oklch(0.72 0.19 225);
-  --emerald: oklch(0.72 0.16 160);       /* #18C37E */
+  --emerald: oklch(0.72 0.16 160); /* #18C37E */
   --warning: oklch(0.82 0.16 80);
   --danger: oklch(0.63 0.22 25);
 
-  --background: oklch(0.985 0.005 240);  /* #F6F9FC */
+  --background: oklch(0.985 0.005 240); /* #F6F9FC */
   --foreground: oklch(0.22 0.06 250);
 
   --card: oklch(1 0 0);
@@ -74,12 +74,30 @@
   --input: oklch(0.92 0.015 240);
   --ring: var(--cyan);
 
-  --gradient-hero: radial-gradient(1200px 600px at 10% -10%, color-mix(in oklab, var(--cyan) 30%, transparent), transparent 60%),
-                   radial-gradient(900px 500px at 90% 10%, color-mix(in oklab, var(--emerald) 22%, transparent), transparent 60%),
-                   linear-gradient(180deg, #06132a 0%, #071A2E 55%, #0a2547 100%);
-  --gradient-cta: linear-gradient(135deg, var(--cyan) 0%, oklch(0.65 0.18 200) 100%);
-  --gradient-emerald: linear-gradient(135deg, var(--emerald) 0%, oklch(0.6 0.15 180) 100%);
-  --shadow-elegant: 0 20px 60px -20px color-mix(in oklab, var(--navy) 45%, transparent);
+  --gradient-hero:
+    radial-gradient(
+      1200px 600px at 10% -10%,
+      color-mix(in oklab, var(--cyan) 30%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 500px at 90% 10%,
+      color-mix(in oklab, var(--emerald) 22%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(180deg, #06132a 0%, #071a2e 55%, #0a2547 100%);
+  --gradient-cta: linear-gradient(
+    135deg,
+    var(--cyan) 0%,
+    oklch(0.65 0.18 200) 100%
+  );
+  --gradient-emerald: linear-gradient(
+    135deg,
+    var(--emerald) 0%,
+    oklch(0.6 0.15 180) 100%
+  );
+  --shadow-elegant: 0 20px 60px -20px
+    color-mix(in oklab, var(--navy) 45%, transparent);
   --shadow-glow: 0 0 40px color-mix(in oklab, var(--cyan) 40%, transparent);
 }
 
@@ -104,15 +122,25 @@
 }
 
 @layer base {
-  * { border-color: var(--color-border); }
-  html { scroll-behavior: smooth; }
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    scroll-behavior: smooth;
+  }
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
-  h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.02em; }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
 }
 
 @utility glass {
@@ -128,7 +156,7 @@
 }
 
 @utility text-gradient-cyan {
-  background: linear-gradient(90deg, #7fe7ff 0%, #18C37E 100%);
+  background: linear-gradient(90deg, #7fe7ff 0%, #18c37e 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -138,43 +166,92 @@
   background: var(--gradient-cta);
   color: #05122a;
   box-shadow: var(--shadow-glow);
-  transition: transform .25s ease, box-shadow .25s ease, filter .25s ease;
-  &:hover { transform: translateY(-2px); filter: brightness(1.05); box-shadow: 0 0 60px color-mix(in oklab, var(--cyan) 55%, transparent); }
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    filter 0.25s ease;
+  &:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.05);
+    box-shadow: 0 0 60px color-mix(in oklab, var(--cyan) 55%, transparent);
+  }
 }
 
 @utility grid-industrial {
   background-image:
-    linear-gradient(color-mix(in oklab, var(--cyan) 12%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in oklab, var(--cyan) 12%, transparent) 1px, transparent 1px);
+    linear-gradient(
+      color-mix(in oklab, var(--cyan) 12%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--cyan) 12%, transparent) 1px,
+      transparent 1px
+    );
   background-size: 44px 44px;
 }
 
 @keyframes float-y {
-  0%,100% { transform: translateY(0); }
-  50% { transform: translateY(-14px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-14px);
+  }
 }
 @keyframes pulse-ring {
-  0% { transform: scale(0.9); opacity: .7; }
-  100% { transform: scale(1.8); opacity: 0; }
+  0% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
 }
 @keyframes marquee-left {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
 }
 @keyframes marquee-right {
-  0% { transform: translateX(-50%); }
-  100% { transform: translateX(0); }
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(0);
+  }
 }
 @keyframes shimmer {
-  0% { background-position: -400px 0; }
-  100% { background-position: 400px 0; }
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
 }
 @keyframes orbit {
-  from { transform: rotate(0deg) translateX(140px) rotate(0deg); }
-  to   { transform: rotate(360deg) translateX(140px) rotate(-360deg); }
+  from {
+    transform: rotate(0deg) translateX(140px) rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) translateX(140px) rotate(-360deg);
+  }
 }
 
-@utility animate-float { animation: float-y 6s ease-in-out infinite; }
-@utility animate-pulse-ring { animation: pulse-ring 2.4s ease-out infinite; }
-@utility animate-marquee-left { animation: marquee-left 30s linear infinite; }
-@utility animate-marquee-right { animation: marquee-right 30s linear infinite; }
+@utility animate-float {
+  animation: float-y 6s ease-in-out infinite;
+}
+@utility animate-pulse-ring {
+  animation: pulse-ring 2.4s ease-out infinite;
+}
+@utility animate-marquee-left {
+  animation: marquee-left 30s linear infinite;
+}
+@utility animate-marquee-right {
+  animation: marquee-right 30s linear infinite;
+}

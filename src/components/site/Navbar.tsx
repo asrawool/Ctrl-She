@@ -36,27 +36,61 @@ export function Navbar() {
             <Cpu className="h-4.5 w-4.5 text-[#05122a]" strokeWidth={2.5} />
           </span>
           <div className="leading-tight">
-            <div className="font-display text-[15px] font-bold tracking-tight">IntelliPlant<span className="text-cyan">.AI</span></div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">Operations Brain</div>
+            <div className="font-display text-[15px] font-bold tracking-tight">
+              IntelliPlant<span className="text-cyan">.AI</span>
+            </div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">
+              Operations Brain
+            </div>
           </div>
         </a>
 
         <nav className="hidden lg:flex items-center gap-7">
           {links.map(([label, href]) => (
-            <a key={label} href={href} className="text-sm font-medium text-white/70 hover:text-white transition-colors">
+            <a
+              key={label}
+              href={href}
+              className="text-sm font-medium text-white/70 hover:text-white transition-colors"
+            >
               {label}
             </a>
           ))}
         </nav>
 
         <div className="hidden lg:flex items-center gap-3">
-          <Link to="/about" className="text-sm font-medium text-white/70 hover:text-white">About</Link>
-          <Link to="/contact" className="text-sm font-medium text-white/70 hover:text-white">Contact</Link>
-          <Link to="/auth/login" className="text-sm font-medium text-white/70 hover:text-white">Login</Link>
-          <Link to="/auth/login" className="btn-hero rounded-full px-5 py-2 text-sm font-semibold">Request Demo</Link>
+          <Link
+            to="/about"
+            className="text-sm font-medium text-white/70 hover:text-white"
+          >
+            About
+          </Link>
+          <Link
+            to="/contact"
+            className="text-sm font-medium text-white/70 hover:text-white"
+          >
+            Contact
+          </Link>
+          <Link
+            to="/auth/login"
+            search={{ intent: "login" }}
+            className="text-sm font-medium text-white/70 hover:text-white"
+          >
+            Login
+          </Link>
+          <Link
+            to="/auth/login"
+            search={{ intent: "signup" }}
+            className="btn-hero rounded-full px-5 py-2 text-sm font-semibold"
+          >
+            Request Demo
+          </Link>
         </div>
 
-        <button className="lg:hidden text-white" onClick={() => setOpen(v => !v)} aria-label="Menu">
+        <button
+          className="lg:hidden text-white"
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Menu"
+        >
           {open ? <X /> : <Menu />}
         </button>
       </div>
@@ -64,10 +98,46 @@ export function Navbar() {
       {open && (
         <div className="lg:hidden border-t border-white/5 bg-[#06132a]/95 px-6 py-4">
           <div className="flex flex-col gap-3">
-            {links.map(([l, h]) => <a key={l} href={h} onClick={() => setOpen(false)} className="text-sm text-white/80">{l}</a>)}
-            <Link to="/about" onClick={() => setOpen(false)} className="text-sm text-white/80">About</Link>
-            <Link to="/contact" onClick={() => setOpen(false)} className="text-sm text-white/80">Contact</Link>
-            <Link to="/auth/login" className="btn-hero rounded-full px-5 py-2 text-sm font-semibold text-center">Sign in</Link>
+            {links.map(([l, h]) => (
+              <a
+                key={l}
+                href={h}
+                onClick={() => setOpen(false)}
+                className="text-sm text-white/80"
+              >
+                {l}
+              </a>
+            ))}
+            <Link
+              to="/about"
+              onClick={() => setOpen(false)}
+              className="text-sm text-white/80"
+            >
+              About
+            </Link>
+            <Link
+              to="/contact"
+              onClick={() => setOpen(false)}
+              className="text-sm text-white/80"
+            >
+              Contact
+            </Link>
+            <Link
+              to="/auth/login"
+              search={{ intent: "login" }}
+              onClick={() => setOpen(false)}
+              className="text-sm font-medium text-white/70 hover:text-white text-center py-2"
+            >
+              Sign in
+            </Link>
+            <Link
+              to="/auth/login"
+              search={{ intent: "signup" }}
+              onClick={() => setOpen(false)}
+              className="btn-hero rounded-full px-5 py-2 text-sm font-semibold text-center"
+            >
+              Request Demo
+            </Link>
           </div>
         </div>
       )}
