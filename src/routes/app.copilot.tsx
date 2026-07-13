@@ -20,6 +20,13 @@ import {
   X,
   Loader2,
   FileText,
+  Star,
+  MoreVertical,
+  ChevronDown,
+  ChevronRight,
+  Trash,
+  Pencil,
+  Filter,
 } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -57,6 +64,7 @@ type Msg = {
 type Conv = {
   id: string;
   title: string;
+  is_starred?: boolean;
   created_at?: string;
   updated_at?: string;
   messages: Msg[];
@@ -107,6 +115,25 @@ function Copilot() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [groundedCount, setGroundedCount] = useState<number | null>(null);
+
+  // Advanced filtering, sorting, collapsibility, and actions states
+  const [activeFilter, setActiveFilter] = useState<
+    "recent" | "grounded" | "starred"
+  >("recent");
+  const [groundedConvIds, setGroundedConvIds] = useState<string[]>([]);
+  const [collapsedSections, setCollapsedSections] = useState<
+    Record<string, boolean>
+  >({
+    Today: false,
+    Yesterday: false,
+    "Previous 7 Days": false,
+    Older: false,
+  });
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Attachment states
   const [attachments, setAttachments] = useState<
@@ -182,6 +209,14 @@ function Copilot() {
         const { data } = await query;
         const list = data || [];
         setConvs(list);
+
+        // Hydrate grounded conversation IDs
+        const { data: groundedMsgs } = await supabase
+          .from("messages")
+          .select("conversation_id")
+          .not("sources", "eq", "[]");
+        const groundedIds = (groundedMsgs || []).map((m) => m.conversation_id);
+        setGroundedConvIds(groundedIds);
 
         // Default activeId
         if (list.length > 0) {
@@ -468,6 +503,79 @@ function Copilot() {
     }
   };
 
+  const handleRenameSubmit = async (id: string) => {
+    if (!renameValue.trim()) {
+      setRenamingId(null);
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from("conversations")
+        .update({ title: renameValue.trim() })
+        .eq("id", id);
+      if (error) throw error;
+
+      setConvs((prev) =>
+        prev.map((c) =>
+          c.id === id ? { ...c, title: renameValue.trim() } : c,
+        ),
+      );
+      toast.success("Chat renamed");
+    } catch (err) {
+      const error = err as Error;
+      toast.error("Failed to rename chat: " + error.message);
+    } finally {
+      setRenamingId(null);
+    }
+  };
+
+  const handleDeleteChat = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from("conversations")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+
+      const updated = convs.filter((c) => c.id !== id);
+      setConvs(updated);
+
+      if (activeId === id) {
+        if (updated.length > 0) {
+          setActiveId(updated[0].id);
+        } else {
+          setActiveId(null);
+          setActiveConv(null);
+        }
+      }
+      toast.success("Conversation deleted");
+    } catch (err) {
+      const error = err as Error;
+      toast.error("Failed to delete conversation: " + error.message);
+    } finally {
+      setDeleteConfirmId(null);
+    }
+  };
+
+  const handleToggleStar = async (id: string, currentStarred: boolean) => {
+    const nextStarred = !currentStarred;
+    try {
+      const { error } = await supabase
+        .from("conversations")
+        .update({ is_starred: nextStarred })
+        .eq("id", id);
+      if (error) throw error;
+
+      setConvs((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, is_starred: nextStarred } : c)),
+      );
+      toast.success(nextStarred ? "Chat starred" : "Chat unstarred");
+    } catch (err) {
+      const error = err as Error;
+      toast.error("Failed to update star state: " + error.message);
+    }
+  };
+
   const handleFeedback = async (msgId: string, rating: "up" | "down") => {
     try {
       const {
@@ -661,9 +769,52 @@ function Copilot() {
     }
   };
 
-  const filtered = convs.filter((c) =>
-    c.title.toLowerCase().includes(searchQ.toLowerCase()),
-  );
+  const filtered = convs.filter((c) => {
+    const matchesSearch = c.title.toLowerCase().includes(searchQ.toLowerCase());
+    if (!matchesSearch) return false;
+
+    if (activeFilter === "starred") {
+      return c.is_starred === true;
+    }
+    if (activeFilter === "grounded") {
+      return groundedConvIds.includes(c.id);
+    }
+    return true;
+  });
+
+  const groupedConvs = (() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const groups: Record<string, Conv[]> = {
+      Today: [],
+      Yesterday: [],
+      "Previous 7 Days": [],
+      Older: [],
+    };
+
+    filtered.forEach((c) => {
+      if (!c.updated_at) return;
+      const date = new Date(c.updated_at);
+      if (date >= today) {
+        groups.Today.push(c);
+      } else if (date >= yesterday) {
+        groups.Yesterday.push(c);
+      } else if (date >= sevenDaysAgo) {
+        groups["Previous 7 Days"].push(c);
+      } else {
+        groups.Older.push(c);
+      }
+    });
+
+    return groups;
+  })();
 
   return (
     <>
@@ -676,6 +827,67 @@ function Copilot() {
         {/* Sidebar */}
         <aside className="hidden lg:flex flex-col rounded-2xl border border-border bg-card overflow-hidden">
           <div className="p-3 border-b border-border">
+            {/* Advanced Filter Dropdown */}
+            <div className="relative mb-2">
+              <button
+                type="button"
+                onClick={() => setShowFilterMenu(!showFilterMenu)}
+                className="flex items-center justify-between w-full h-8 px-2.5 rounded-lg border border-border hover:bg-muted bg-muted/20 text-[11px] font-semibold text-foreground transition"
+              >
+                <div className="flex items-center gap-1.5">
+                  <Filter className="h-3.5 w-3.5 text-accent" />
+                  <span>
+                    {activeFilter === "recent"
+                      ? "Recent Activity"
+                      : activeFilter === "grounded"
+                        ? "By Document Grounding"
+                        : "By Bookmarks/Favorites"}
+                  </span>
+                </div>
+                <ChevronDown className="h-3 w-3 text-muted-foreground" />
+              </button>
+              {showFilterMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setShowFilterMenu(false)}
+                  />
+                  <div className="absolute left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-lg py-1.5 z-20 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveFilter("recent");
+                        setShowFilterMenu(false);
+                      }}
+                      className={`flex w-full items-center px-3 py-2 hover:bg-muted text-left ${activeFilter === "recent" ? "text-accent font-semibold" : ""}`}
+                    >
+                      Recent Activity
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveFilter("grounded");
+                        setShowFilterMenu(false);
+                      }}
+                      className={`flex w-full items-center px-3 py-2 hover:bg-muted text-left ${activeFilter === "grounded" ? "text-accent font-semibold" : ""}`}
+                    >
+                      By Document Grounding
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveFilter("starred");
+                        setShowFilterMenu(false);
+                      }}
+                      className={`flex w-full items-center px-3 py-2 hover:bg-muted text-left ${activeFilter === "starred" ? "text-accent font-semibold" : ""}`}
+                    >
+                      By Bookmarks/Favorites
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
             <Button onClick={handleNewChat} className="w-full btn-hero">
               <Plus className="mr-2 h-4 w-4" /> New chat
             </Button>
@@ -699,16 +911,170 @@ function Copilot() {
                 No chats found
               </div>
             ) : (
-              filtered.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setActiveId(c.id)}
-                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition ${c.id === activeId ? "bg-accent/10 text-accent" : "hover:bg-muted"}`}
-                >
-                  <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">{c.title}</span>
-                </button>
-              ))
+              Object.entries(groupedConvs).map(([section, items]) => {
+                if (items.length === 0) return null;
+                const isCollapsed = collapsedSections[section];
+                return (
+                  <div key={section} className="space-y-1 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCollapsedSections((prev) => ({
+                          ...prev,
+                          [section]: !prev[section],
+                        }));
+                      }}
+                      className="flex items-center justify-between w-full px-2 py-1 text-left text-[10px] font-bold text-muted-foreground hover:text-foreground uppercase tracking-wider transition"
+                    >
+                      <div className="flex items-center gap-1">
+                        {isCollapsed ? (
+                          <ChevronRight className="h-3 w-3" />
+                        ) : (
+                          <ChevronDown className="h-3 w-3" />
+                        )}
+                        <span>
+                          {section} ({items.length})
+                        </span>
+                      </div>
+                    </button>
+                    {!isCollapsed && (
+                      <div className="space-y-0.5 pl-1">
+                        {items.map((c) => {
+                          const isSelected = c.id === activeId;
+                          const isStarred = c.is_starred === true;
+                          const isRenaming = renamingId === c.id;
+                          const isMenuOpen = activeMenuId === c.id;
+
+                          if (isRenaming) {
+                            return (
+                              <div
+                                key={c.id}
+                                className="flex items-center w-full rounded-lg px-2 py-1 bg-muted/30 border border-border/40"
+                              >
+                                <MessageSquare className="h-3.5 w-3.5 shrink-0 text-accent mr-1.5" />
+                                <input
+                                  value={renameValue}
+                                  onChange={(e) =>
+                                    setRenameValue(e.target.value)
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      handleRenameSubmit(c.id);
+                                    } else if (e.key === "Escape") {
+                                      setRenamingId(null);
+                                    }
+                                  }}
+                                  onBlur={() => handleRenameSubmit(c.id)}
+                                  autoFocus
+                                  className="flex-1 bg-transparent text-xs outline-none border-none p-0 focus:ring-0"
+                                />
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div
+                              key={c.id}
+                              className={`group relative flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs transition ${
+                                isSelected
+                                  ? "bg-accent/10 text-accent font-medium"
+                                  : "hover:bg-muted text-foreground"
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setActiveId(c.id)}
+                                className="flex flex-1 items-center gap-1.5 overflow-hidden text-left"
+                              >
+                                <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70 group-hover:opacity-100" />
+                                <span className="truncate flex-1 pr-10">
+                                  {c.title}
+                                </span>
+                              </button>
+
+                              <div className="absolute right-1.5 flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleStar(c.id, isStarred);
+                                  }}
+                                  className={`p-0.5 rounded hover:bg-background/80 transition ${
+                                    isStarred
+                                      ? "text-amber-500 opacity-100"
+                                      : "text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground"
+                                  }`}
+                                >
+                                  <Star
+                                    className="h-3 w-3"
+                                    fill={isStarred ? "currentColor" : "none"}
+                                  />
+                                </button>
+
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveMenuId(isMenuOpen ? null : c.id);
+                                    }}
+                                    className={`p-0.5 rounded hover:bg-background/80 transition text-muted-foreground hover:text-foreground ${
+                                      isMenuOpen
+                                        ? "opacity-100"
+                                        : "opacity-0 group-hover:opacity-100"
+                                    }`}
+                                  >
+                                    <MoreVertical className="h-3 w-3" />
+                                  </button>
+
+                                  {isMenuOpen && (
+                                    <>
+                                      <div
+                                        className="fixed inset-0 z-20"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setActiveMenuId(null);
+                                        }}
+                                      />
+                                      <div className="absolute right-0 mt-1 bg-card border border-border rounded-lg shadow-xl py-1 z-30 w-24 text-[10px]">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setRenamingId(c.id);
+                                            setRenameValue(c.title);
+                                            setActiveMenuId(null);
+                                          }}
+                                          className="flex w-full items-center gap-1 px-2 py-1 hover:bg-muted text-left"
+                                        >
+                                          <Pencil className="h-2.5 w-2.5" />
+                                          Rename
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setDeleteConfirmId(c.id);
+                                            setActiveMenuId(null);
+                                          }}
+                                          className="flex w-full items-center gap-1 px-2 py-1 hover:bg-red-500/10 text-red-500 text-left"
+                                        >
+                                          <Trash className="h-2.5 w-2.5" />
+                                          Delete
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
           <div className="p-3 border-t border-border">
@@ -920,6 +1286,37 @@ function Copilot() {
               </Button>
               <Button className="btn-hero w-full" onClick={capturePhoto}>
                 Capture
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border w-full max-w-xs rounded-2xl p-5 shadow-2xl relative space-y-4">
+            <h3 className="font-display text-sm font-bold text-center">
+              Delete Conversation?
+            </h3>
+            <p className="text-xs text-muted-foreground text-center">
+              This will permanently delete this conversation and all its
+              messages.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="w-full text-xs h-8"
+                onClick={() => setDeleteConfirmId(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                className="w-full text-xs h-8"
+                onClick={() => handleDeleteChat(deleteConfirmId)}
+              >
+                Delete
               </Button>
             </div>
           </div>

@@ -3,6 +3,7 @@ create table if not exists public.conversations (
   id uuid default gen_random_uuid() primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
   title text not null default 'New chat',
+  is_starred boolean not null default false,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
