@@ -711,6 +711,166 @@ function Copilot() {
     }
   };
 
+  const handleDownloadChat = () => {
+    if (!activeConv || activeConv.messages.length === 0) {
+      toast.error("No messages to export");
+      return;
+    }
+
+    let markdown = `# Conversation: ${activeConv.title}\n`;
+    markdown += `Exported on: ${new Date().toLocaleString()}\n\n`;
+    markdown += `---\n\n`;
+
+    activeConv.messages.forEach((msg) => {
+      const isUser = msg.role === "user";
+      const sender = isUser ? "You" : "IntelliPlant Copilot";
+      markdown += `### ${sender}\n`;
+      markdown += `${msg.text}\n\n`;
+
+      if (!isUser) {
+        if (msg.confidence) {
+          markdown += `*Confidence: ${Math.round(msg.confidence * 100)}%*\n`;
+        }
+        if (msg.sources && msg.sources.length > 0) {
+          markdown += `*Sources cited:*\n`;
+          msg.sources.forEach((s, idx) => {
+            markdown += `- [${idx + 1}] ${s.label || s.documentName}${s.page ? ` (Page ${s.page})` : ""}\n`;
+          });
+        }
+        markdown += `\n`;
+      }
+      markdown += `---\n\n`;
+    });
+
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+
+    const safeTitle = activeConv.title
+      .replace(/[^a-z0-9]/gi, "_")
+      .toLowerCase()
+      .slice(0, 30);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.setAttribute("download", `copilot_chat_${safeTitle}_${dateStr}.md`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success("Conversation exported successfully");
+  };
+
+  const handleEditMessageSave = async (msgId: string, newText: string) => {
+    if (!activeConv || busy) return;
+    setBusy(true);
+
+    try {
+      // 1. Find message index
+      const msgIdx = activeConv.messages.findIndex((m) => m.id === msgId);
+      if (msgIdx === -1) return;
+
+      // 2. Identify downstream messages to delete
+      const downstream = activeConv.messages.slice(msgIdx + 1);
+      const idsToDelete = downstream.map((m) => m.id);
+
+      // 3. Delete downstream messages from DB
+      if (idsToDelete.length > 0) {
+        const { error: delError } = await supabase
+          .from("messages")
+          .delete()
+          .in("id", idsToDelete);
+        if (delError) throw delError;
+      }
+
+      // 4. Update the current user message in the DB
+      const { error: updateError } = await supabase
+        .from("messages")
+        .update({ content: newText })
+        .eq("id", msgId);
+      if (updateError) throw updateError;
+
+      // 5. Update local state optimistically
+      const updatedUserMsgObj = {
+        ...activeConv.messages[msgIdx],
+        text: newText,
+      };
+      const preservedMessages = activeConv.messages.slice(0, msgIdx);
+
+      const aiTempMsgObj = {
+        id: "temp-ai",
+        role: "ai" as const,
+        text: "",
+        loading: true,
+      };
+
+      setActiveConv({
+        ...activeConv,
+        messages: [...preservedMessages, updatedUserMsgObj, aiTempMsgObj],
+      });
+
+      // 6. Get AI response for the new text
+      const res = await aiService.ask(newText);
+
+      // 7. Insert new AI message in DB
+      const { data: aiMsg, error: aiError } = await supabase
+        .from("messages")
+        .insert({
+          conversation_id: activeConv.id,
+          role: "ai",
+          content: res.answer,
+          sources: res.citations,
+          confidence: res.confidence,
+        })
+        .select()
+        .single();
+
+      if (aiError) throw aiError;
+
+      // 8. Re-hydrate local state
+      setActiveConv((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          messages: [
+            ...preservedMessages,
+            {
+              id: msgId,
+              role: "user",
+              text: newText,
+              attachments: updatedUserMsgObj.attachments,
+            },
+            {
+              id: aiMsg.id,
+              role: "ai",
+              text: aiMsg.content,
+              sources: aiMsg.sources,
+              confidence: aiMsg.confidence,
+              rating: null,
+            },
+          ],
+        };
+      });
+
+      // Update conversation timestamp
+      await supabase
+        .from("conversations")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", activeConv.id);
+
+      // Re-fetch conversations list to show correct order
+      fetchConvs();
+    } catch (err) {
+      const error = err as Error;
+      console.error(error);
+      toast.error("Failed to edit message: " + error.message);
+      // Re-hydrate full active chat on failure to align local state with DB
+      fetchConvs();
+      setActiveId(activeConv.id);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleFeedback = async (msgId: string, rating: "up" | "down") => {
     try {
       const {
@@ -1314,6 +1474,8 @@ function Copilot() {
                 <span>Notes ({notes.length})</span>
               </button>
               <button
+                type="button"
+                onClick={handleDownloadChat}
                 className="grid h-8 w-8 place-items-center rounded-lg hover:bg-muted"
                 title="Export Conversation"
               >
@@ -1357,6 +1519,7 @@ function Copilot() {
                     onRegen={() => send(activeConv.messages.at(-2)?.text ?? "")}
                     onFeedback={(rating) => handleFeedback(m.id, rating)}
                     onSaveNote={(content) => handleSaveNote(content, activeId)}
+                    onEditSave={(id, text) => handleEditMessageSave(id, text)}
                   />
                 ))}
               </AnimatePresence>
@@ -1635,18 +1798,23 @@ function Bubble({
   onRegen,
   onFeedback,
   onSaveNote,
+  onEditSave,
 }: {
   msg: Msg;
   onRegen: () => void;
   onFeedback: (rating: "up" | "down") => void;
   onSaveNote?: (content: string) => void;
+  onEditSave?: (id: string, text: string) => void;
 }) {
   const isUser = msg.role === "user";
+  const [isEditing, setIsEditing] = useState(false);
+  const [editVal, setEditVal] = useState("");
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+      className={`group flex ${isUser ? "justify-end" : "justify-start"}`}
     >
       <div
         className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
@@ -1665,9 +1833,57 @@ function Bubble({
               />
             ))}
           </div>
+        ) : isEditing ? (
+          <div className="space-y-2 min-w-[200px]">
+            <textarea
+              value={editVal}
+              onChange={(e) => setEditVal(e.target.value)}
+              className="w-full text-xs bg-background/20 text-white outline-none border border-white/20 rounded-lg p-2 focus:border-white/50 focus:ring-0"
+              rows={3}
+              autoFocus
+            />
+            <div className="flex justify-end gap-1.5">
+              <button
+                type="button"
+                className="h-7 px-2.5 rounded-md text-xs text-white hover:bg-white/10 transition"
+                onClick={() => setIsEditing(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="h-7 px-3 rounded-md text-xs bg-white text-navy font-semibold hover:bg-white/90 transition shadow-sm"
+                onClick={() => {
+                  if (editVal.trim() && onEditSave) {
+                    onEditSave(msg.id, editVal.trim());
+                    setIsEditing(false);
+                  }
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
         ) : (
           <>
             <div className="whitespace-pre-line">{msg.text}</div>
+
+            {/* User message edit button */}
+            {isUser && onEditSave && (
+              <div className="mt-1.5 flex items-center justify-end gap-1 text-white/50 opacity-0 group-hover:opacity-100 transition duration-150">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditing(true);
+                    setEditVal(msg.text);
+                  }}
+                  className="p-1 rounded hover:bg-white/10 text-white/70 hover:text-white transition"
+                  title="Edit message"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              </div>
+            )}
 
             {/* Bubble Attachment List */}
             {msg.attachments && msg.attachments.length > 0 && (
