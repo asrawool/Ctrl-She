@@ -46,9 +46,17 @@ export const aiService = {
     return {
       answer: data.answer as string,
       citations: (data.sources ?? []).map(
-        (s: { documentId: string; similarity: number }) => ({
+        (s: {
+          documentId: string;
+          similarity: number;
+          documentName?: string;
+          page?: number;
+        }) => ({
           id: s.documentId,
-          label: `Source (${Math.round(s.similarity * 100)}% match)`,
+          label:
+            s.documentName ||
+            `Source (${Math.round(s.similarity * 100)}% match)`,
+          page: s.page,
         }),
       ),
       confidence: data.sources?.length
