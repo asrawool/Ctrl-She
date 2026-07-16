@@ -23,6 +23,8 @@ export const Route = createFileRoute("/app/analytics")({
   component: Page,
 });
 
+// TODO: Replace with real data from Supabase - monthly performance metrics
+// Query: SELECT date_trunc('month', created_at) as m, AVG(oee_score) as oee, AVG(uptime_pct) as uptime, AVG(mttr_hours) as mttr FROM equipment_metrics GROUP BY m ORDER BY m LIMIT 6
 const monthly = [
   { m: "Jan", oee: 82, uptime: 94, mttr: 4.2 },
   { m: "Feb", oee: 84, uptime: 95, mttr: 3.9 },
@@ -31,6 +33,8 @@ const monthly = [
   { m: "May", oee: 89, uptime: 97, mttr: 3.1 },
   { m: "Jun", oee: 92, uptime: 98, mttr: 2.8 },
 ];
+// TODO: Replace with real data from Supabase - department performance scores
+// Query: SELECT department as d, AVG(performance_score) as v FROM equipment GROUP BY department
 const dept = [
   { d: "Maintenance", v: 87 },
   { d: "Operations", v: 91 },
@@ -38,6 +42,8 @@ const dept = [
   { d: "HSE", v: 96 },
   { d: "Engineering", v: 89 },
 ];
+// TODO: Replace with real data from Supabase - maintenance type distribution
+// Query: SELECT maintenance_type as n, COUNT(*) as v FROM work_orders GROUP BY maintenance_type
 const pie = [
   { n: "Preventive", v: 52, c: "#00C2FF" },
   { n: "Predictive", v: 28, c: "#18C37E" },
@@ -63,6 +69,8 @@ function Page() {
         }
       />
 
+      {/* TODO: Replace with real data from Supabase - current KPI values */}
+      {/* Query: SELECT AVG(oee_score), AVG(uptime_pct), AVG(mtbf_hours), AVG(mttr_hours) FROM equipment_metrics WHERE date = TODAY */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { l: "OEE", v: "92%", c: "emerald" },
@@ -141,6 +149,8 @@ function Page() {
           </ResponsiveContainer>
         </Card>
 
+        {/* TODO: Replace with real data from Supabase - asset reliability heatmap */}
+        {/* Query: SELECT health_score FROM equipment ORDER BY tag LIMIT 64 */}
         <Card title="Asset Reliability Heatmap">
           <div className="grid grid-cols-8 gap-1">
             {Array.from({ length: 64 }).map((_, i) => {

@@ -8,6 +8,8 @@ export const Route = createFileRoute("/app/knowledge")({
 });
 
 function Page() {
+  // TODO: Replace with real data from Supabase - document collections by category
+  // Query: SELECT category as t, COUNT(*) as n FROM documents GROUP BY category
   const collections = [
     {
       i: FileText,

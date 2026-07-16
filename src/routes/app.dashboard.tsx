@@ -37,6 +37,8 @@ export const Route = createFileRoute("/app/dashboard")({
   component: Dashboard,
 });
 
+// TODO: Replace with real data from Supabase - equipment health metrics over time
+// Query: SELECT date_trunc('month', created_at) as m, AVG(health_score) as health, COUNT(*) FILTER (WHERE status = 'critical') as failures FROM equipment GROUP BY m ORDER BY m LIMIT 6
 const trend = [
   { m: "Jan", health: 82, failures: 12 },
   { m: "Feb", health: 85, failures: 10 },
@@ -45,6 +47,8 @@ const trend = [
   { m: "May", health: 91, failures: 6 },
   { m: "Jun", health: 94, failures: 4 },
 ];
+// TODO: Replace with real data from Supabase - failure distribution by root cause
+// Query: SELECT root_cause as name, COUNT(*) as value FROM incidents WHERE resolved_at > NOW() - INTERVAL '90 days' GROUP BY root_cause
 const failures = [
   { name: "Bearing", value: 34, color: "#00C2FF" },
   { name: "Seal", value: 22, color: "#18C37E" },
@@ -52,6 +56,8 @@ const failures = [
   { name: "Cavitation", value: 14, color: "#F31260" },
   { name: "Other", value: 12, color: "#71717A" },
 ];
+// TODO: Replace with real data from Supabase - OEE by department
+// Query: SELECT department as d, AVG(oee_score) as oee FROM equipment GROUP BY department
 const departments = [
   { d: "Pumps", oee: 87 },
   { d: "Compressors", oee: 79 },
@@ -75,6 +81,7 @@ function Dashboard() {
 
       {/* KPI grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* TODO: Replace with real data from Supabase - AVG(health_score) FROM equipment */}
         <Kpi
           icon={Activity}
           label="Asset Health"
@@ -82,6 +89,7 @@ function Dashboard() {
           delta="+2.1%"
           tone="emerald"
         />
+        {/* TODO: Replace with real data from Supabase - COUNT(*) FROM documents */}
         <Kpi
           icon={FileText}
           label="Documents Uploaded"
@@ -89,6 +97,7 @@ function Dashboard() {
           delta="+128"
           tone="cyan"
         />
+        {/* TODO: Replace with real data from Supabase - COUNT(*) FROM messages WHERE created_at > TODAY */}
         <Kpi
           icon={MessageSquare}
           label="AI Queries Today"
@@ -96,6 +105,7 @@ function Dashboard() {
           delta="+62"
           tone="cyan"
         />
+        {/* TODO: Replace with real data from Supabase - compliance score from quality metrics table */}
         <Kpi
           icon={ShieldCheck}
           label="Compliance Score"
@@ -144,6 +154,8 @@ function Dashboard() {
           </ResponsiveContainer>
         </Card>
 
+        {/* TODO: Replace with real data from Supabase - equipment status distribution */}
+        {/* Query: SELECT status, COUNT(*) FROM equipment GROUP BY status */}
         <Card title="Equipment Status" subtitle="1,284 assets monitored">
           <div className="space-y-2.5">
             <StatusRow label="Healthy" count={1104} pct={86} tone="emerald" />
@@ -194,6 +206,8 @@ function Dashboard() {
 
       {/* Row 4 */}
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        {/* TODO: Replace with real data from Supabase - work orders from maintenance table */}
+        {/* Query: SELECT * FROM work_orders WHERE status = 'open' ORDER BY due_date LIMIT 4 */}
         <Card
           title="Active Work Orders"
           subtitle="12 open"
@@ -262,6 +276,8 @@ function Dashboard() {
           </div>
         </Card>
 
+        {/* TODO: Replace with real data from Supabase - recent notifications */}
+        {/* Already wired to notificationsService.list() - just need to consume real data */}
         <Card title="Recent Notifications">
           <div className="space-y-2.5">
             {[
@@ -317,6 +333,8 @@ function Dashboard() {
 
       {/* Row 5 */}
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        {/* TODO: Replace with real data from Supabase - knowledge coverage metrics */}
+        {/* Query: SELECT category, COUNT(*) FROM documents GROUP BY category */}
         <Card title="Knowledge Coverage" subtitle="Documents mapped to assets">
           <div className="grid grid-cols-3 gap-3 text-center">
             {[
@@ -339,6 +357,8 @@ function Dashboard() {
           </div>
         </Card>
 
+        {/* TODO: Replace with real data from Supabase - scheduled maintenance */}
+        {/* Query: SELECT scheduled_date, COUNT(*) FROM work_orders WHERE scheduled_date BETWEEN NOW() AND NOW() + INTERVAL '7 days' GROUP BY scheduled_date */}
         <Card title="Maintenance Calendar" subtitle="Next 7 days">
           <div className="grid grid-cols-7 gap-1.5">
             {Array.from({ length: 7 }).map((_, i) => {

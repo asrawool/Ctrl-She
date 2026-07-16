@@ -17,6 +17,8 @@ type Node = {
 };
 type Edge = { a: string; b: string };
 
+// TODO: Replace with real data from Supabase - knowledge graph nodes
+// Query: SELECT id, name as label, type FROM equipment UNION SELECT id, title as label, 'doc' as type FROM documents UNION SELECT id, title as label, 'incident' as type FROM incidents
 const NODES: Node[] = [
   { id: "a1", label: "Pump P-401", type: "asset", x: 400, y: 280 },
   { id: "d1", label: "KSB Manual", type: "doc", x: 220, y: 180 },
@@ -29,6 +31,8 @@ const NODES: Node[] = [
   { id: "a2", label: "Compressor C-12", type: "asset", x: 100, y: 280 },
   { id: "d3", label: "P&ID Alpha", type: "doc", x: 100, y: 100 },
 ];
+// TODO: Replace with real data from Supabase - knowledge graph edges
+// Query: SELECT source_id as a, target_id as b FROM knowledge_graph_relationships
 const EDGES: Edge[] = [
   { a: "a1", b: "d1" },
   { a: "a1", b: "d2" },

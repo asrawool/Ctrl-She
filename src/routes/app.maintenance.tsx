@@ -26,6 +26,8 @@ export const Route = createFileRoute("/app/maintenance")({
   component: Page,
 });
 
+// TODO: Replace with real data from Supabase - equipment list with health scores and RUL
+// Query: SELECT tag as id, name, health_score as health, rul_days as rul, status FROM equipment ORDER BY health_score ASC LIMIT 4
 const equip = [
   {
     id: "P-401",
@@ -50,6 +52,8 @@ const equip = [
   },
   { id: "R-3", name: "Batch Reactor", health: 88, rul: 210, status: "healthy" },
 ];
+// TODO: Replace with real data from Supabase - vibration trend for specific equipment
+// Query: SELECT date_trunc('day', created_at) as t, AVG(vibration_mm_s) as v FROM equipment_metrics WHERE equipment_id = 'P-401' AND created_at > NOW() - INTERVAL '7 days' GROUP BY t ORDER BY t
 const vibration = [
   { t: "Mon", v: 2.1 },
   { t: "Tue", v: 2.3 },
@@ -68,6 +72,7 @@ function Page() {
         description="Predictive analytics, RUL forecasting, RCA and spare parts optimization across your asset base."
       />
 
+      {/* TODO: Replace with real data from Supabase - equipment cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {equip.map((e) => (
           <div
@@ -108,6 +113,8 @@ function Page() {
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        {/* TODO: Replace with real data from Supabase - vibration trend chart */}
+        {/* Query: SELECT date_trunc('day', created_at) as t, AVG(vibration_mm_s) as v FROM equipment_metrics WHERE equipment_id = 'P-401' AND created_at > NOW() - INTERVAL ' days' GROUP BY t ORDER BY t */}
         <div className="rounded-2xl border border-border bg-card p-5 lg:col-span-2">
           <h3 className="font-display font-semibold mb-4 flex items-center gap-2">
             <TrendingDown className="h-4 w-4 text-destructive" /> Vibration
@@ -129,6 +136,8 @@ function Page() {
           </ResponsiveContainer>
         </div>
 
+        {/* TODO: Replace with real data from Supabase - AI recommendations */}
+        {/* Query: SELECT recommendation, confidence FROM ai_recommendations WHERE equipment_id IN ('P-401', 'HX-7', 'C-12') ORDER BY confidence DESC LIMIT 3 */}
         <div className="rounded-2xl border border-border bg-card p-5">
           <h3 className="font-display font-semibold mb-3 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-accent" /> AI Recommendations
@@ -153,6 +162,8 @@ function Page() {
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        {/* TODO: Replace with real data from Supabase - maintenance timeline */}
+        {/* Query: SELECT scheduled_date, type, description FROM work_orders WHERE scheduled_date BETWEEN NOW() AND NOW() + INTERVAL '14 days' ORDER BY scheduled_date LIMIT 4 */}
         <div className="rounded-2xl border border-border bg-card p-5">
           <h3 className="font-display font-semibold mb-4">
             Maintenance Timeline
@@ -185,6 +196,8 @@ function Page() {
           </div>
         </div>
 
+        {/* TODO: Replace with real data from Supabase - spare parts inventory */}
+        {/* Query: SELECT part_name as p, current_stock as stock, min_stock as min FROM spare_parts ORDER BY current_stock ASC LIMIT 4 */}
         <div className="rounded-2xl border border-border bg-card p-5">
           <h3 className="font-display font-semibold mb-4 flex items-center gap-2">
             <Package className="h-4 w-4 text-accent" /> Spare Parts
@@ -227,6 +240,8 @@ function Page() {
         </div>
       </div>
 
+      {/* TODO: Replace with real data from Supabase - root cause analysis */}
+      {/* Query: SELECT symptom, root_cause, recommended_action FROM incidents WHERE id = 'IR-2024-118' */}
       <div className="mt-6 rounded-2xl border border-border bg-card p-5">
         <h3 className="font-display font-semibold mb-4 flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-orange-500" /> Root Cause

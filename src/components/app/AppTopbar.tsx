@@ -108,6 +108,8 @@ export function AppTopbar() {
           placeholder="Search documents, equipment, assets…"
           className="h-10 w-72 lg:w-96 rounded-xl border border-border bg-muted/40 pl-9 pr-3 text-sm outline-none focus:border-accent focus:bg-background transition"
         />
+        {/* TODO: Replace with real data from Supabase - recent search results */}
+        {/* Query: SELECT search_term FROM search_history WHERE user_id = auth.uid() ORDER BY created_at DESC LIMIT 3 */}
         {searchOpen && (
           <div className="absolute right-0 top-12 w-96 rounded-xl border border-border bg-popover shadow-lg p-3">
             <div className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">

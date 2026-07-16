@@ -22,6 +22,8 @@ export const Route = createFileRoute("/app/quality")({
   component: Page,
 });
 
+// TODO: Replace with real data from Supabase - compliance scores by framework
+// Query: SELECT framework as n, compliance_score as s FROM compliance_frameworks ORDER BY compliance_score DESC
 const frameworks = [
   { n: "Factory Act", s: 98, tone: "emerald" },
   { n: "OISD", s: 94, tone: "emerald" },
@@ -32,6 +34,8 @@ const frameworks = [
   { n: "Environmental", s: 79, tone: "warning" },
   { n: "OSHA-equiv", s: 92, tone: "emerald" },
 ];
+// TODO: Replace with real data from Supabase - compliance trend over time
+// Query: SELECT date_trunc('month', created_at) as m, AVG(compliance_score) as s FROM compliance_metrics GROUP BY m ORDER BY m LIMIT 6
 const trend = [
   { m: "Jan", s: 88 },
   { m: "Feb", s: 90 },
@@ -49,6 +53,8 @@ function Page() {
         description="Real-time compliance posture across regulatory frameworks with CAPA, audits and non-conformance tracking."
       />
 
+      {/* TODO: Replace with real data from Supabase - quality KPIs */}
+      {/* Query: SELECT AVG(compliance_score), COUNT(*) FILTER (WHERE status = 'open') FROM capas, COUNT(*) FROM ncrs WHERE created_at > NOW() - INTERVAL '1 month', audit_readiness_score FROM compliance_metrics WHERE date = TODAY */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { i: ShieldCheck, l: "Overall Score", v: "97/100", tone: "emerald" },
@@ -69,6 +75,8 @@ function Page() {
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        {/* TODO: Replace with real data from Supabase - compliance by framework */}
+        {/* Query: SELECT framework as n, compliance_score as s FROM compliance_frameworks ORDER BY compliance_score DESC */}
         <div className="rounded-2xl border border-border bg-card p-5 lg:col-span-2">
           <h3 className="font-display font-semibold mb-4">
             Compliance by Framework
@@ -95,6 +103,8 @@ function Page() {
           </div>
         </div>
 
+        {/* TODO: Replace with real data from Supabase - compliance trend chart */}
+        {/* Query: SELECT date_trunc('month', created_at) as m, AVG(compliance_score) as s FROM compliance_metrics GROUP BY m ORDER BY m LIMIT 6 */}
         <div className="rounded-2xl border border-border bg-card p-5">
           <h3 className="font-display font-semibold mb-4">Compliance Trend</h3>
           <ResponsiveContainer width="100%" height={220}>
@@ -115,6 +125,8 @@ function Page() {
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        {/* TODO: Replace with real data from Supabase - inspection schedule */}
+        {/* Query: SELECT inspection_type as t, scheduled_date as d, responsible_dept as by FROM inspections WHERE scheduled_date BETWEEN NOW() AND NOW() + INTERVAL '14 days' ORDER BY scheduled_date LIMIT 4 */}
         <div className="rounded-2xl border border-border bg-card p-5">
           <h3 className="font-display font-semibold mb-4">
             Inspection Schedule
@@ -141,6 +153,8 @@ function Page() {
           </div>
         </div>
 
+        {/* TODO: Replace with real data from Supabase - non-conformance reports */}
+        {/* Query: SELECT ncr_id as id, description as t, severity as sev, status as s FROM ncrs ORDER BY created_at DESC LIMIT 3 */}
         <div className="rounded-2xl border border-border bg-card p-5">
           <h3 className="font-display font-semibold mb-4">
             Non-Conformance Reports
