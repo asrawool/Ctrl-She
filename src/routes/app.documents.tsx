@@ -21,11 +21,20 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
+  X,
 } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+
+import { z } from "zod";
+
+const documentSearchSchema = z.object({
+  category: z.string().optional(),
+});
 
 export const Route = createFileRoute("/app/documents")({
+  validateSearch: (search) => documentSearchSchema.parse(search),
   head: () => ({ meta: [{ title: "Documents — IntelliPlant AI" }] }),
   component: Documents,
 });
@@ -49,6 +58,7 @@ interface Doc {
   processingStatus?: ProcessingStatus;
   chunkCount?: number;
   errorMessage?: string | null;
+  source?: string;
 }
 
 // process-document responds immediately with { status: "processing" } and
@@ -203,9 +213,10 @@ function generateId(): string {
 }
 
 function Documents() {
+  const { category: initialCategory } = Route.useSearch();
   const [docs, setDocs] = useState<Doc[]>([]);
   const [view, setView] = useState<"grid" | "list">("list");
-  const [cat, setCat] = useState("All");
+  const [cat, setCat] = useState(initialCategory || "All");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<"updated" | "name" | "size">("updated");
   const [selected, setSelected] = useState<Doc | null>(null);
@@ -213,6 +224,17 @@ function Documents() {
   const [drag, setDrag] = useState(false);
   const [reprocessing, setReprocessing] = useState<Record<string, boolean>>({});
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // States for upload metadata and editing
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploadMeta, setUploadMeta] = useState({
+    category: "Manuals",
+    asset: "",
+    version: "v1.0",
+    source: "",
+  });
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
 
   const fetchDocs = async () => {
     const { data, error } = await supabase
@@ -239,7 +261,7 @@ function Documents() {
         id: row.id,
         name: row.name,
         type: type as Doc["type"],
-        size: 0,
+        size: row.size ?? 0,
         category: row.category ?? "Manuals",
         tags: row.tags ?? [],
         asset: row.asset ?? "—",
@@ -250,10 +272,8 @@ function Documents() {
         storagePath: row.storage_path,
         processingStatus: (row.status as ProcessingStatus) ?? "pending",
         errorMessage: row.error_message ?? null,
-        // `documents` doesn't store a chunk count column; the real number
-        // is fetched lazily once a doc is opened or (re)processed, see
-        // fetchChunkCount / handleReprocess below.
         chunkCount: undefined,
+        source: row.source ?? "—",
       };
     });
 
@@ -339,14 +359,40 @@ function Documents() {
     .filter((d) => cat === "All" || d.category === cat)
     .filter((d) => d.name.toLowerCase().includes(q.toLowerCase()));
 
-  const handleUpload = async (files: FileList | null) => {
-    if (!files) return;
+  const handleUpload = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setPendingFiles(Array.from(files));
+    setUploadMeta({
+      category: "Manuals",
+      asset: "",
+      version: "v1.0",
+      source: "",
+    });
+    setShowUploadModal(true);
+  };
 
-    for (const file of Array.from(files)) {
+  const startUpload = async () => {
+    setShowUploadModal(false);
+    const filesToUpload = [...pendingFiles];
+    setPendingFiles([]);
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    for (const file of filesToUpload) {
+      // 50 MB limit check for Supabase Storage Free Tier
+      if (file.size > 50 * 1024 * 1024) {
+        toast.error(
+          `File "${file.name}" exceeds the 50MB maximum upload limit for the free tier.`,
+        );
+        continue;
+      }
+
       const item = { name: file.name, pct: 0 };
       setUploads((u) => [...u, item]);
 
-      // Fake progress animation while the real upload happens in the background
+      // Progress animation
       const interval = setInterval(() => {
         setUploads((u) =>
           u.map((it) =>
@@ -359,13 +405,13 @@ function Documents() {
 
       try {
         const filePath = `${generateId()}-${file.name}`;
-
         const { error: uploadError } = await supabase.storage
           .from("documents")
           .upload(filePath, file);
 
         if (uploadError) {
           console.error("Storage upload failed:", uploadError);
+          toast.error(`Upload failed for ${file.name}: ${uploadError.message}`);
           continue;
         }
 
@@ -374,12 +420,19 @@ function Documents() {
           .insert({
             name: file.name,
             storage_path: filePath,
+            size: file.size,
+            category: uploadMeta.category,
+            asset: uploadMeta.asset || "—",
+            version: uploadMeta.version || "v1.0",
+            source: uploadMeta.source || "—",
+            user_id: user?.id || null,
           })
           .select()
           .single();
 
         if (dbError) {
           console.error("DB insert failed:", dbError);
+          toast.error(`Failed to save document metadata for ${file.name}`);
           continue;
         }
 
@@ -397,24 +450,20 @@ function Documents() {
             name: file.name,
             type: type as Doc["type"],
             size: file.size,
-            category: "Manuals",
+            category: uploadMeta.category,
             tags: ["New"],
-            asset: "—",
-            version: "v1.0",
+            asset: uploadMeta.asset || "—",
+            version: uploadMeta.version || "v1.0",
             updated: "just now",
             storagePath: filePath,
             processingStatus: "processing",
             chunkCount: 0,
+            source: uploadMeta.source || "—",
           },
           ...d,
         ]);
 
-        // Kick off chunking + embedding in the background.
-        // We don't await this — the upload UI shouldn't wait on it,
-        // and any failure here shouldn't undo the upload that already succeeded.
-        // process-document itself returns immediately and finishes the real
-        // work async, so we poll the row for the final status/chunk count.
-        console.log("About to call process-document for:", document.id);
+        console.log("Kicking off processing for:", document.id);
         supabase.functions
           .invoke("process-document", { body: { documentId: document.id } })
           .then(async ({ error: invokeError }) => {
@@ -449,15 +498,10 @@ function Documents() {
                 ),
               );
             } catch (pollErr) {
-              console.error(
-                "Timed out waiting for document processing:",
-                pollErr,
-              );
+              console.error("Timed out waiting for processing:", pollErr);
             }
           });
       } catch (err) {
-        // Catches anything unexpected (network errors, etc.) so the
-        // progress bar never gets stuck silently.
         console.error("Unexpected upload error:", err);
       } finally {
         clearInterval(interval);
@@ -529,6 +573,32 @@ function Documents() {
     setSelected((s) => (s?.id === doc.id ? null : s));
   };
 
+  const handleUpdateMetadata = async () => {
+    if (!editingDoc) return;
+    const { error } = await supabase
+      .from("documents")
+      .update({
+        name: editingDoc.name,
+        category: editingDoc.category,
+        asset: editingDoc.asset,
+        version: editingDoc.version,
+        source: editingDoc.source,
+      })
+      .eq("id", editingDoc.id);
+
+    if (error) {
+      toast.error("Failed to update metadata: " + error.message);
+      return;
+    }
+
+    setDocs((prev) =>
+      prev.map((d) => (d.id === editingDoc.id ? editingDoc : d)),
+    );
+    setSelected(editingDoc);
+    setEditingDoc(null);
+    toast.success("Document updated successfully");
+  };
+
   return (
     <>
       <PageHeader
@@ -566,7 +636,7 @@ function Documents() {
           <span className="text-accent underline">browse</span>
         </p>
         <p className="text-xs text-muted-foreground mt-1">
-          PDF, DOCX, XLSX, PNG, JPG · up to 100MB
+          PDF, DOCX, XLSX, PNG, JPG · up to 50MB (Free Tier Limit)
         </p>
 
         {uploads.length > 0 && (
@@ -671,7 +741,10 @@ function Documents() {
                   return (
                     <tr
                       key={d.id}
-                      onClick={() => setSelected(d)}
+                      onClick={() => {
+                        setSelected(d);
+                        setEditingDoc(null);
+                      }}
                       className="border-t border-border hover:bg-muted/40 cursor-pointer"
                     >
                       <td className="px-4 py-2.5 flex items-center gap-2.5">
@@ -737,7 +810,10 @@ function Documents() {
                 return (
                   <div
                     key={d.id}
-                    onClick={() => setSelected(d)}
+                    onClick={() => {
+                      setSelected(d);
+                      setEditingDoc(null);
+                    }}
                     className="rounded-xl border border-border p-4 hover:border-accent cursor-pointer transition"
                   >
                     <div className="flex items-start justify-between">
@@ -788,93 +864,198 @@ function Documents() {
         {/* Details panel */}
         <aside className="rounded-2xl border border-border bg-card p-5 h-fit sticky top-20">
           {selected ? (
-            <>
-              <div className="flex items-start gap-3">
-                <div className="grid h-11 w-11 place-items-center rounded-lg bg-accent/10 text-accent">
-                  <FileText className="h-5 w-5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold truncate">{selected.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {(selected.size / 1024 / 1024).toFixed(2)} MB ·{" "}
-                    {selected.version}
+            editingDoc ? (
+              <div className="space-y-4">
+                <h3 className="font-semibold text-sm">Edit Metadata</h3>
+                <div className="space-y-2.5 text-xs">
+                  <div>
+                    <label className="block text-muted-foreground mb-1">
+                      Document Name
+                    </label>
+                    <input
+                      value={editingDoc.name}
+                      onChange={(e) =>
+                        setEditingDoc({ ...editingDoc, name: e.target.value })
+                      }
+                      className="w-full h-8 rounded-lg bg-background border border-border px-2 text-xs outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-muted-foreground mb-1">
+                      Category
+                    </label>
+                    <select
+                      value={editingDoc.category}
+                      onChange={(e) =>
+                        setEditingDoc({
+                          ...editingDoc,
+                          category: e.target.value,
+                        })
+                      }
+                      className="w-full h-8 rounded-lg bg-background border border-border px-2 text-xs outline-none focus:border-accent"
+                    >
+                      {CATEGORIES.filter((c) => c !== "All").map((c) => (
+                        <option key={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-muted-foreground mb-1">
+                      Equipment / Asset Mapping
+                    </label>
+                    <input
+                      value={editingDoc.asset}
+                      onChange={(e) =>
+                        setEditingDoc({ ...editingDoc, asset: e.target.value })
+                      }
+                      className="w-full h-8 rounded-lg bg-background border border-border px-2 text-xs outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-muted-foreground mb-1">
+                      Version
+                    </label>
+                    <input
+                      value={editingDoc.version}
+                      onChange={(e) =>
+                        setEditingDoc({
+                          ...editingDoc,
+                          version: e.target.value,
+                        })
+                      }
+                      className="w-full h-8 rounded-lg bg-background border border-border px-2 text-xs outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-muted-foreground mb-1">
+                      Source / Vendor
+                    </label>
+                    <input
+                      value={editingDoc.source || ""}
+                      onChange={(e) =>
+                        setEditingDoc({ ...editingDoc, source: e.target.value })
+                      }
+                      className="w-full h-8 rounded-lg bg-background border border-border px-2 text-xs outline-none focus:border-accent"
+                    />
                   </div>
                 </div>
-              </div>
-              <div className="mt-4 space-y-3 text-sm">
-                <Field label="Category" value={selected.category} />
-                <Field label="Equipment" value={selected.asset} />
-                <Field label="Last Updated" value={selected.updated} />
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">
-                    RAG Index
-                  </span>
-                  <StatusBadge
-                    status={selected.processingStatus}
-                    chunkCount={selected.chunkCount}
-                    errorMessage={selected.errorMessage}
-                  />
-                </div>
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5">
-                    Tags
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {selected.tags.map((t) => (
-                      <span
-                        key={t}
-                        className="rounded-full bg-muted px-2 py-0.5 text-[10px]"
-                      >
-                        <Tag className="inline h-2.5 w-2.5 mr-0.5" />
-                        {t}
-                      </span>
-                    ))}
-                  </div>
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setEditingDoc(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="w-full btn-hero"
+                    onClick={handleUpdateMetadata}
+                  >
+                    Save
+                  </Button>
                 </div>
               </div>
-              <div className="mt-5 grid grid-cols-2 gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePreview(selected)}
-                >
-                  <Eye className="mr-1.5 h-3.5 w-3.5" /> Preview
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDownload(selected)}
-                >
-                  <Download className="mr-1.5 h-3.5 w-3.5" /> Download
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!!reprocessing[selected.id]}
-                  onClick={() => handleReprocess(selected)}
-                  title="Re-run text extraction, OCR fallback and embedding for this document"
-                >
-                  {reprocessing[selected.id] ? (
-                    <>
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />{" "}
-                      Reprocessing…
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Reprocess
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-destructive"
-                  onClick={() => handleDelete(selected)}
-                >
-                  <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
-                </Button>
-              </div>
-            </>
+            ) : (
+              <>
+                <div className="flex items-start gap-3">
+                  <div className="grid h-11 w-11 place-items-center rounded-lg bg-accent/10 text-accent">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold truncate">
+                      {selected.name}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {(selected.size / 1024 / 1024).toFixed(2)} MB ·{" "}
+                      {selected.version}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 space-y-3 text-sm">
+                  <Field label="Category" value={selected.category} />
+                  <Field label="Equipment" value={selected.asset} />
+                  <Field label="Source" value={selected.source || "—"} />
+                  <Field label="Last Updated" value={selected.updated} />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">
+                      RAG Index
+                    </span>
+                    <StatusBadge
+                      status={selected.processingStatus}
+                      chunkCount={selected.chunkCount}
+                      errorMessage={selected.errorMessage}
+                    />
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5">
+                      Tags
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {selected.tags.map((t) => (
+                        <span
+                          key={t}
+                          className="rounded-full bg-muted px-2 py-0.5 text-[10px]"
+                        >
+                          <Tag className="inline h-2.5 w-2.5 mr-0.5" />
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-5 grid grid-cols-2 gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePreview(selected)}
+                  >
+                    <Eye className="mr-1.5 h-3.5 w-3.5" /> Preview
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDownload(selected)}
+                  >
+                    <Download className="mr-1.5 h-3.5 w-3.5" /> Download
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!!reprocessing[selected.id]}
+                    onClick={() => handleReprocess(selected)}
+                    title="Re-run text extraction, OCR fallback and embedding for this document"
+                  >
+                    {reprocessing[selected.id] ? (
+                      <>
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />{" "}
+                        Reprocessing…
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Reprocess
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditingDoc({ ...selected })}
+                  >
+                    Edit Metadata
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive col-span-2 mt-1"
+                    onClick={() => handleDelete(selected)}
+                  >
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
+                  </Button>
+                </div>
+              </>
+            )
           ) : (
             <EmptyState
               icon={Filter}
@@ -884,6 +1065,103 @@ function Documents() {
           )}
         </aside>
       </div>
+
+      {/* Upload Metadata Selector Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border w-full max-w-sm rounded-3xl p-6 shadow-2xl relative space-y-4">
+            <button
+              onClick={() => setShowUploadModal(false)}
+              className="absolute right-4 top-4 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <h3 className="font-display text-md font-bold text-center">
+              Ingest Document Metadata
+            </h3>
+            <p className="text-xs text-muted-foreground text-center">
+              Configure parameters before start of OCR/RAG chunk embedding.
+            </p>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-muted-foreground mb-1">
+                  Files Selected
+                </label>
+                <div className="bg-muted/40 p-2 rounded-lg max-h-20 overflow-y-auto font-mono text-[10px] text-accent">
+                  {pendingFiles.map((f) => f.name).join(", ")}
+                </div>
+              </div>
+              <div>
+                <label className="block text-muted-foreground mb-1">
+                  Category
+                </label>
+                <select
+                  value={uploadMeta.category}
+                  onChange={(e) =>
+                    setUploadMeta({ ...uploadMeta, category: e.target.value })
+                  }
+                  className="w-full h-8 rounded-lg bg-background border border-border px-2 text-xs outline-none focus:border-accent"
+                >
+                  {CATEGORIES.filter((c) => c !== "All").map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-muted-foreground mb-1">
+                  Equipment / Asset ID (Optional)
+                </label>
+                <input
+                  placeholder="e.g. P-401, C-12"
+                  value={uploadMeta.asset}
+                  onChange={(e) =>
+                    setUploadMeta({ ...uploadMeta, asset: e.target.value })
+                  }
+                  className="w-full h-8 rounded-lg bg-background border border-border px-2 text-xs outline-none focus:border-accent"
+                />
+              </div>
+              <div>
+                <label className="block text-muted-foreground mb-1">
+                  Version (Optional)
+                </label>
+                <input
+                  placeholder="e.g. v1.0"
+                  value={uploadMeta.version}
+                  onChange={(e) =>
+                    setUploadMeta({ ...uploadMeta, version: e.target.value })
+                  }
+                  className="w-full h-8 rounded-lg bg-background border border-border px-2 text-xs outline-none focus:border-accent"
+                />
+              </div>
+              <div>
+                <label className="block text-muted-foreground mb-1">
+                  Source / Vendor (Optional)
+                </label>
+                <input
+                  placeholder="e.g. Siemens, KSB"
+                  value={uploadMeta.source}
+                  onChange={(e) =>
+                    setUploadMeta({ ...uploadMeta, source: e.target.value })
+                  }
+                  className="w-full h-8 rounded-lg bg-background border border-border px-2 text-xs outline-none focus:border-accent"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => setShowUploadModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button className="btn-hero w-full" onClick={startUpload}>
+                Start Ingestion
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

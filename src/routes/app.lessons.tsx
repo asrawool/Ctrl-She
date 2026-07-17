@@ -1,44 +1,135 @@
+import { useState, useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { PageHeader } from "@/components/app/PageHeader";
-import { AlertTriangle, BookOpen, Sparkles, TrendingUp } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import {
+  AlertTriangle,
+  BookOpen,
+  Sparkles,
+  TrendingUp,
+  RefreshCw,
+} from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/lessons")({
   head: () => ({ meta: [{ title: "Lessons Learned — IntelliPlant AI" }] }),
   component: Page,
 });
 
-const incidents = [
-  {
-    d: "Jun 12, 2026",
-    t: "Bearing failure on P-401",
-    cat: "Mechanical",
-    sev: "High",
-    cause: "Lube starvation from extended interval",
-  },
-  {
-    d: "May 28, 2026",
-    t: "Near-miss: Reactor over-pressure",
-    cat: "Process Safety",
-    sev: "Critical",
-    cause: "PSV setpoint drift",
-  },
-  {
-    d: "May 4, 2026",
-    t: "Contaminated batch #B-2418",
-    cat: "Quality",
-    sev: "Medium",
-    cause: "Cross-contamination during changeover",
-  },
-  {
-    d: "Apr 19, 2026",
-    t: "HVAC downtime — clean room",
-    cat: "Utilities",
-    sev: "Medium",
-    cause: "Filter clog, missed PM",
-  },
-];
+interface Lesson {
+  d: string;
+  t: string;
+  cat: string;
+  sev: string;
+  cause: string;
+  ref: string;
+}
 
 function Page() {
+  const [incidents, setIncidents] = useState<Lesson[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = async () => {
+    try {
+      // Query both RCAs and NCRs to combine into lessons learned timeline
+      const [{ data: rcaData }, { data: ncrData }] = await Promise.all([
+        supabase
+          .from("rca_reports")
+          .select("*")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("ncrs")
+          .select("*")
+          .order("created_at", { ascending: false }),
+      ]);
+
+      const combined: Lesson[] = [];
+
+      if (rcaData) {
+        rcaData.forEach((r) => {
+          combined.push({
+            d: new Date(r.created_at).toLocaleDateString(undefined, {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            }),
+            t: `RCA: Incident on ${r.asset_id || "Asset"}`,
+            cat: "Mechanical",
+            sev: "High",
+            cause: r.root_cause,
+            ref: r.incident_ref,
+          });
+        });
+      }
+
+      if (ncrData) {
+        ncrData.forEach((n) => {
+          combined.push({
+            d: new Date(n.created_at).toLocaleDateString(undefined, {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            }),
+            t: `NCR: ${n.description}`,
+            cat: n.framework_ref || "Quality",
+            sev: n.severity || "Medium",
+            cause: `Quality non-conformance event (${n.status})`,
+            ref: n.ncr_number,
+          });
+        });
+      }
+
+      // Default fallback seed if completely empty
+      if (combined.length === 0) {
+        combined.push(
+          {
+            d: "Jun 12, 2026",
+            t: "Bearing failure on P-401",
+            cat: "Mechanical",
+            sev: "High",
+            cause: "Lube starvation from extended interval",
+            ref: "RCA-001",
+          },
+          {
+            d: "May 28, 2026",
+            t: "Near-miss: Reactor over-pressure",
+            cat: "Process Safety",
+            sev: "Critical",
+            cause: "PSV setpoint drift",
+            ref: "IR-2026-902",
+          },
+          {
+            d: "May 4, 2026",
+            t: "Contaminated batch #B-2418",
+            cat: "Quality",
+            sev: "Medium",
+            cause: "Cross-contamination during changeover",
+            ref: "NCR-2024-040",
+          },
+        );
+      }
+
+      setIncidents(combined);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to load lessons learned timeline");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex h-[80vh] items-center justify-center">
+        <RefreshCw className="h-8 w-8 animate-spin text-accent" />
+      </div>
+    );
+  }
+
   return (
     <>
       <PageHeader
@@ -53,19 +144,31 @@ function Page() {
             {incidents.map((i, idx) => (
               <div key={idx} className="relative">
                 <span
-                  className={`absolute -left-6 top-1 grid h-4 w-4 place-items-center rounded-full ${i.sev === "Critical" ? "bg-destructive" : i.sev === "High" ? "bg-orange-500" : "bg-accent"}`}
+                  className={`absolute -left-6 top-1 grid h-4 w-4 place-items-center rounded-full ${
+                    i.sev === "Critical"
+                      ? "bg-destructive"
+                      : i.sev === "High"
+                        ? "bg-orange-500"
+                        : "bg-accent"
+                  }`}
                 >
                   <AlertTriangle className="h-2.5 w-2.5 text-white" />
                 </span>
                 <div className="text-[10px] uppercase font-bold text-muted-foreground">
-                  {i.d} · {i.cat}
+                  {i.d} · {i.cat} ({i.ref})
                 </div>
                 <div className="text-sm font-semibold">{i.t}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   Root cause: {i.cause}
                 </div>
                 <span
-                  className={`inline-block mt-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${i.sev === "Critical" ? "bg-destructive/10 text-destructive" : i.sev === "High" ? "bg-orange-500/10 text-orange-500" : "bg-accent/10 text-accent"}`}
+                  className={`inline-block mt-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    i.sev === "Critical"
+                      ? "bg-destructive/10 text-destructive"
+                      : i.sev === "High"
+                        ? "bg-orange-500/10 text-orange-500"
+                        : "bg-accent/10 text-accent"
+                  }`}
                 >
                   {i.sev}
                 </span>

@@ -14,36 +14,42 @@ function Page() {
     {
       i: FileText,
       t: "Technical Manuals",
+      cat: "Manuals",
       n: 842,
       d: "OEM manuals and equipment specs",
     },
     {
       i: BookOpen,
       t: "Standard Operating Procedures",
+      cat: "SOPs",
       n: 1264,
       d: "Approved SOPs across plants",
     },
     {
       i: Wrench,
       t: "Maintenance Records",
+      cat: "Data",
       n: 3820,
       d: "Work orders and failure history",
     },
     {
       i: Library,
       t: "Training Content",
+      cat: "Manuals",
       n: 412,
       d: "Videos, tutorials and courseware",
     },
     {
       i: FileText,
       t: "Audit & Compliance",
+      cat: "Audits",
       n: 518,
       d: "Reports and inspection records",
     },
     {
       i: BookOpen,
       t: "Best Practices",
+      cat: "SOPs",
       n: 96,
       d: "Curated engineering knowledge articles",
     },
@@ -55,10 +61,11 @@ function Page() {
         description="Curated knowledge collections across your entire plant estate. All content is searchable and grounded in your AI Copilot."
       />
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {collections.map(({ i: I, t, n, d }) => (
+        {collections.map(({ i: I, t, cat, n, d }) => (
           <Link
             key={t}
             to="/app/documents"
+            search={{ category: cat }}
             className="rounded-2xl border border-border bg-card p-5 hover:border-accent transition group"
           >
             <div className="flex items-start justify-between">

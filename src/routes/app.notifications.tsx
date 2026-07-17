@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/app/PageHeader";
+import { supabase } from "@/lib/supabase";
+import { toast } from "sonner";
 import {
   Bell,
   Wrench,
@@ -10,8 +12,10 @@ import {
   Cpu,
   Archive,
   Check,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Notification } from "@/types/operational";
 
 export const Route = createFileRoute("/app/notifications")({
   head: () => ({ meta: [{ title: "Notifications — IntelliPlant AI" }] }),
@@ -19,72 +23,6 @@ export const Route = createFileRoute("/app/notifications")({
 });
 
 type Cat = "all" | "maintenance" | "compliance" | "documents" | "ai" | "system";
-interface Notif {
-  id: string;
-  cat: Exclude<Cat, "all">;
-  title: string;
-  body: string;
-  time: string;
-  read: boolean;
-  priority: "high" | "medium" | "low";
-}
-
-const SEED: Notif[] = [
-  {
-    id: "1",
-    cat: "maintenance",
-    title: "Vibration anomaly on P-401",
-    body: "Sensor exceeded threshold 4.2 mm/s at 14:22.",
-    time: "12m ago",
-    read: false,
-    priority: "high",
-  },
-  {
-    id: "2",
-    cat: "compliance",
-    title: "ISO 9001 audit completed",
-    body: "Score 96/100. 3 minor findings assigned.",
-    time: "1h ago",
-    read: false,
-    priority: "medium",
-  },
-  {
-    id: "3",
-    cat: "documents",
-    title: "New SOP: Reactor R-3 start-up",
-    body: "v4.1 uploaded and approved by document controller.",
-    time: "3h ago",
-    read: true,
-    priority: "low",
-  },
-  {
-    id: "4",
-    cat: "ai",
-    title: "AI insight generated",
-    body: "Fleet-wide lube interval optimization opportunity detected.",
-    time: "5h ago",
-    read: false,
-    priority: "medium",
-  },
-  {
-    id: "5",
-    cat: "system",
-    title: "Weekly digest ready",
-    body: "Your weekly operations summary is available to download.",
-    time: "1d ago",
-    read: true,
-    priority: "low",
-  },
-  {
-    id: "6",
-    cat: "maintenance",
-    title: "Work order WO-4820 assigned",
-    body: "Corrective maintenance on Compressor C-12 · Critical.",
-    time: "2d ago",
-    read: true,
-    priority: "high",
-  },
-];
 
 const ICONS = {
   maintenance: Wrench,
@@ -95,24 +33,166 @@ const ICONS = {
 };
 
 function Page() {
-  const [items, setItems] = useState<Notif[]>(SEED);
+  const [items, setItems] = useState<Notification[]>([]);
   const [tab, setTab] = useState<Cat>("all");
   const [showUnread, setShowUnread] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const fetchNotifications = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: fetchRes, error } = await supabase
+        .from("notifications")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      let data = fetchRes;
+
+      if (error) throw error;
+
+      // Seed if completely empty
+      if (!data || data.length === 0) {
+        const seedData = [
+          {
+            user_id: user.id,
+            title: "Vibration anomaly on P-401",
+            message: "Sensor exceeded threshold 4.2 mm/s at 14:22.",
+            type: "warning",
+            metadata: { category: "maintenance", priority: "high" },
+            is_read: false,
+          },
+          {
+            user_id: user.id,
+            title: "ISO 9001 audit completed",
+            message: "Score 96/100. 3 minor findings assigned.",
+            type: "info",
+            metadata: { category: "compliance", priority: "medium" },
+            is_read: false,
+          },
+          {
+            user_id: user.id,
+            title: "New SOP: Reactor R-3 start-up",
+            message: "v4.1 uploaded and approved by document controller.",
+            type: "info",
+            metadata: { category: "documents", priority: "low" },
+            is_read: true,
+          },
+          {
+            user_id: user.id,
+            title: "AI insight generated",
+            message:
+              "Fleet-wide lube interval optimization opportunity detected.",
+            type: "info",
+            metadata: { category: "ai", priority: "medium" },
+            is_read: false,
+          },
+          {
+            user_id: user.id,
+            title: "Weekly digest ready",
+            message: "Your weekly operations summary is available to download.",
+            type: "info",
+            metadata: { category: "system", priority: "low" },
+            is_read: true,
+          },
+        ];
+
+        const { data: inserted, error: insertError } = await supabase
+          .from("notifications")
+          .insert(seedData)
+          .select();
+
+        if (!insertError && inserted) {
+          data = inserted;
+        }
+      }
+
+      setItems(data || []);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load notifications");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
+
+  const markAllRead = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from("notifications")
+        .update({ is_read: true })
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+      setItems((prev) => prev.map((n) => ({ ...n, is_read: true })));
+      toast.success("All notifications marked as read");
+    } catch (err: unknown) {
+      toast.error("Failed to mark read: " + (err as Error).message);
+    }
+  };
+
+  const archive = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from("notifications")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+
+      setItems((prev) => prev.filter((n) => n.id !== id));
+      toast.success("Notification archived");
+    } catch (err: unknown) {
+      toast.error("Failed to archive notification: " + (err as Error).message);
+    }
+  };
+
+  const toggleRead = async (n: Notification) => {
+    try {
+      const { error } = await supabase
+        .from("notifications")
+        .update({ is_read: !n.is_read })
+        .eq("id", n.id);
+
+      if (error) throw error;
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === n.id ? { ...item, is_read: !n.is_read } : item,
+        ),
+      );
+    } catch (err: unknown) {
+      toast.error("Failed to update status: " + (err as Error).message);
+    }
+  };
 
   const filtered = items
-    .filter((n) => tab === "all" || n.cat === tab)
-    .filter((n) => !showUnread || !n.read);
+    .filter((n) => {
+      const cat = n.metadata?.category || "system";
+      return tab === "all" || cat === tab;
+    })
+    .filter((n) => !showUnread || !n.is_read);
 
-  const markAllRead = () =>
-    setItems((it) => it.map((n) => ({ ...n, read: true })));
-  const archive = (id: string) =>
-    setItems((it) => it.filter((n) => n.id !== id));
-  const toggleRead = (id: string) =>
-    setItems((it) =>
-      it.map((n) => (n.id === id ? { ...n, read: !n.read } : n)),
+  const unread = items.filter((n) => !n.is_read).length;
+
+  if (loading) {
+    return (
+      <div className="flex h-[80vh] items-center justify-center">
+        <RefreshCw className="h-8 w-8 animate-spin text-accent" />
+      </div>
     );
-
-  const unread = items.filter((n) => !n.read).length;
+  }
 
   return (
     <>
@@ -142,14 +222,22 @@ function Page() {
           <button
             key={c}
             onClick={() => setTab(c)}
-            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold capitalize transition ${tab === c ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70"}`}
+            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold capitalize transition ${
+              tab === c
+                ? "bg-accent text-accent-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/70"
+            }`}
           >
             {c}
           </button>
         ))}
         <button
           onClick={() => setShowUnread(!showUnread)}
-          className={`ml-2 rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${showUnread ? "bg-accent/10 text-accent border border-accent/30" : "border border-border"}`}
+          className={`ml-2 rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
+            showUnread
+              ? "bg-accent/10 text-accent border border-accent/30"
+              : "border border-border"
+          }`}
         >
           Unread only
         </button>
@@ -162,37 +250,47 @@ function Page() {
           </div>
         ) : (
           filtered.map((n) => {
-            const I = ICONS[n.cat];
+            const cat = n.metadata?.category || "system";
+            const priority = n.metadata?.priority || "medium";
+            const I = ICONS[cat as keyof typeof ICONS] || Cpu;
             return (
               <div
                 key={n.id}
-                onClick={() => toggleRead(n.id)}
-                className={`flex items-start gap-3 p-4 hover:bg-muted/30 cursor-pointer ${!n.read ? "bg-accent/5" : ""}`}
+                onClick={() => toggleRead(n)}
+                className={`flex items-start gap-3 p-4 hover:bg-muted/30 cursor-pointer ${
+                  !n.is_read ? "bg-accent/5" : ""
+                }`}
               >
-                {!n.read && (
+                {!n.is_read && (
                   <span className="mt-2 h-2 w-2 rounded-full bg-accent shrink-0" />
                 )}
                 <div
-                  className={`grid h-9 w-9 place-items-center rounded-lg shrink-0 ${n.priority === "high" ? "bg-destructive/10 text-destructive" : n.priority === "medium" ? "bg-orange-500/10 text-orange-500" : "bg-accent/10 text-accent"}`}
+                  className={`grid h-9 w-9 place-items-center rounded-lg shrink-0 ${
+                    priority === "high"
+                      ? "bg-destructive/10 text-destructive"
+                      : priority === "medium"
+                        ? "bg-orange-500/10 text-orange-500"
+                        : "bg-accent/10 text-accent"
+                  }`}
                 >
                   <I className="h-4 w-4" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <div
-                      className={`text-sm ${!n.read ? "font-semibold" : "font-medium"}`}
+                      className={`text-sm ${!n.is_read ? "font-semibold" : "font-medium"}`}
                     >
                       {n.title}
                     </div>
                     <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase font-bold text-muted-foreground">
-                      {n.cat}
+                      {cat}
                     </span>
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    {n.body}
+                    {n.message}
                   </div>
                   <div className="text-[10px] text-muted-foreground mt-1">
-                    {n.time}
+                    {new Date(n.created_at).toLocaleString()}
                   </div>
                 </div>
                 <button

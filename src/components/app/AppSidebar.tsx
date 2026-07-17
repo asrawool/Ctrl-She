@@ -16,6 +16,8 @@ import {
   LogOut,
   ChevronLeft,
   Cpu,
+  FileBadge,
+  Boxes,
 } from "lucide-react";
 import { useAuth } from "@/store/auth";
 import { canAccess, type ModuleKey } from "@/services/rbac";
@@ -66,6 +68,18 @@ const ITEMS: Item[] = [
     label: "Lessons Learned",
     icon: BookOpen,
     module: "lessons",
+  },
+  {
+    to: "/app/insurance",
+    label: "Insurance & Certs",
+    icon: FileBadge,
+    module: "insurance",
+  },
+  {
+    to: "/app/inventory",
+    label: "Asset Inventory",
+    icon: Boxes,
+    module: "inventory",
   },
   {
     to: "/app/analytics",

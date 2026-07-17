@@ -809,7 +809,11 @@ function Copilot() {
       });
 
       // 6. Get AI response for the new text
-      const res = await aiService.ask(newText);
+      const history = preservedMessages.map((m) => ({
+        role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+        content: m.text,
+      }));
+      const res = await aiService.ask(newText, [], history);
 
       // 7. Insert new AI message in DB
       const { data: aiMsg, error: aiError } = await supabase
@@ -1022,7 +1026,19 @@ function Copilot() {
       );
 
       // 3. Ask Copilot Function
-      const res = await aiService.ask(userMsgContent);
+      const history = activeConv
+        ? activeConv.messages
+            .filter((m) => m.id !== "temp-ai" && m.id !== userMsg.id)
+            .map((m) => ({
+              role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+              content: m.text,
+            }))
+        : [];
+      const res = await aiService.ask(
+        userMsgContent,
+        currentAttachments,
+        history,
+      );
 
       // 4. Save AI Response
       const { data: aiMsg, error: aiError } = await supabase

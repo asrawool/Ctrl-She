@@ -5,6 +5,18 @@ import { supabase } from "@/lib/supabase";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+export interface Attachment {
+  name: string;
+  type?: string;
+  path: string;
+  size?: number;
+}
+
+export interface Message {
+  role: "user" | "assistant" | "ai" | "model";
+  content: string;
+}
+
 export const documentsService = {
   async list() {
     await delay(400);
@@ -28,9 +40,13 @@ export const documentsService = {
 };
 
 export const aiService = {
-  async ask(question: string, _context?: unknown) {
+  async ask(
+    question: string,
+    attachments: Attachment[] = [],
+    history: Message[] = [],
+  ) {
     const { data, error } = await supabase.functions.invoke("ask-copilot", {
-      body: { question },
+      body: { question, attachments, history },
     });
 
     if (error) {

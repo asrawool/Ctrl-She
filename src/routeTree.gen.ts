@@ -25,6 +25,8 @@ import { Route as AppNotificationsRouteImport } from './routes/app.notifications
 import { Route as AppMaintenanceRouteImport } from './routes/app.maintenance'
 import { Route as AppLessonsRouteImport } from './routes/app.lessons'
 import { Route as AppKnowledgeRouteImport } from './routes/app.knowledge'
+import { Route as AppInventoryRouteImport } from './routes/app.inventory'
+import { Route as AppInsuranceRouteImport } from './routes/app.insurance'
 import { Route as AppHelpRouteImport } from './routes/app.help'
 import { Route as AppGraphRouteImport } from './routes/app.graph'
 import { Route as AppDocumentsRouteImport } from './routes/app.documents'
@@ -112,6 +114,16 @@ const AppKnowledgeRoute = AppKnowledgeRouteImport.update({
   path: '/knowledge',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInventoryRoute = AppInventoryRouteImport.update({
+  id: '/inventory',
+  path: '/inventory',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInsuranceRoute = AppInsuranceRouteImport.update({
+  id: '/insurance',
+  path: '/insurance',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppHelpRoute = AppHelpRouteImport.update({
   id: '/help',
   path: '/help',
@@ -155,6 +167,8 @@ export interface FileRoutesByFullPath {
   '/app/documents': typeof AppDocumentsRoute
   '/app/graph': typeof AppGraphRoute
   '/app/help': typeof AppHelpRoute
+  '/app/insurance': typeof AppInsuranceRoute
+  '/app/inventory': typeof AppInventoryRoute
   '/app/knowledge': typeof AppKnowledgeRoute
   '/app/lessons': typeof AppLessonsRoute
   '/app/maintenance': typeof AppMaintenanceRoute
@@ -179,6 +193,8 @@ export interface FileRoutesByTo {
   '/app/documents': typeof AppDocumentsRoute
   '/app/graph': typeof AppGraphRoute
   '/app/help': typeof AppHelpRoute
+  '/app/insurance': typeof AppInsuranceRoute
+  '/app/inventory': typeof AppInventoryRoute
   '/app/knowledge': typeof AppKnowledgeRoute
   '/app/lessons': typeof AppLessonsRoute
   '/app/maintenance': typeof AppMaintenanceRoute
@@ -204,6 +220,8 @@ export interface FileRoutesById {
   '/app/documents': typeof AppDocumentsRoute
   '/app/graph': typeof AppGraphRoute
   '/app/help': typeof AppHelpRoute
+  '/app/insurance': typeof AppInsuranceRoute
+  '/app/inventory': typeof AppInventoryRoute
   '/app/knowledge': typeof AppKnowledgeRoute
   '/app/lessons': typeof AppLessonsRoute
   '/app/maintenance': typeof AppMaintenanceRoute
@@ -230,6 +248,8 @@ export interface FileRouteTypes {
     | '/app/documents'
     | '/app/graph'
     | '/app/help'
+    | '/app/insurance'
+    | '/app/inventory'
     | '/app/knowledge'
     | '/app/lessons'
     | '/app/maintenance'
@@ -254,6 +274,8 @@ export interface FileRouteTypes {
     | '/app/documents'
     | '/app/graph'
     | '/app/help'
+    | '/app/insurance'
+    | '/app/inventory'
     | '/app/knowledge'
     | '/app/lessons'
     | '/app/maintenance'
@@ -278,6 +300,8 @@ export interface FileRouteTypes {
     | '/app/documents'
     | '/app/graph'
     | '/app/help'
+    | '/app/insurance'
+    | '/app/inventory'
     | '/app/knowledge'
     | '/app/lessons'
     | '/app/maintenance'
@@ -413,6 +437,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppKnowledgeRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/inventory': {
+      id: '/app/inventory'
+      path: '/inventory'
+      fullPath: '/app/inventory'
+      preLoaderRoute: typeof AppInventoryRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/insurance': {
+      id: '/app/insurance'
+      path: '/insurance'
+      fullPath: '/app/insurance'
+      preLoaderRoute: typeof AppInsuranceRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/help': {
       id: '/app/help'
       path: '/help'
@@ -465,6 +503,8 @@ interface AppRouteChildren {
   AppDocumentsRoute: typeof AppDocumentsRoute
   AppGraphRoute: typeof AppGraphRoute
   AppHelpRoute: typeof AppHelpRoute
+  AppInsuranceRoute: typeof AppInsuranceRoute
+  AppInventoryRoute: typeof AppInventoryRoute
   AppKnowledgeRoute: typeof AppKnowledgeRoute
   AppLessonsRoute: typeof AppLessonsRoute
   AppMaintenanceRoute: typeof AppMaintenanceRoute
@@ -481,6 +521,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppDocumentsRoute: AppDocumentsRoute,
   AppGraphRoute: AppGraphRoute,
   AppHelpRoute: AppHelpRoute,
+  AppInsuranceRoute: AppInsuranceRoute,
+  AppInventoryRoute: AppInventoryRoute,
   AppKnowledgeRoute: AppKnowledgeRoute,
   AppLessonsRoute: AppLessonsRoute,
   AppMaintenanceRoute: AppMaintenanceRoute,
