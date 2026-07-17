@@ -23,9 +23,11 @@ import {
   registerFaceDescriptorFn,
   verifyFaceDescriptorFn,
   getUserRoleFn,
+  checkSessionVerificationFn,
 } from "@/services/webauthn.server";
 import { toast } from "sonner";
 import type * as FaceApiType from "@vladmandic/face-api";
+import { detectRedirectLoop } from "@/lib/redirect-guard";
 
 type State = "waiting" | "scanning" | "verifying" | "verified";
 
@@ -40,8 +42,10 @@ export const Route = createFileRoute("/auth/face")({
     };
   },
   head: () => ({ meta: [{ title: "Face ID — IntelliPlant AI" }] }),
-  beforeLoad: async () => {
+  beforeLoad: async ({ search }) => {
     if (typeof window !== "undefined") {
+      detectRedirectLoop("/auth/face");
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -52,32 +56,32 @@ export const Route = createFileRoute("/auth/face")({
       if (!state.otpVerified) {
         throw redirect({ to: "/auth/login" });
       }
+
+      // Check server-side verification status to decide if scan can be skipped
+      const token = session.access_token;
+      const isReset = search && search.reset === true;
+
+      if (!isReset) {
+        const verification = await checkSessionVerificationFn({
+          data: { token },
+        });
+
+        if (verification.verified) {
+          const roleRes = await getUserRoleFn({ data: { token } });
+          if (roleRes.role) {
+            useAuth
+              .getState()
+              .setRole(roleRes.role, roleRes.customRole || undefined);
+            throw redirect({ to: "/app/dashboard" });
+          } else {
+            throw redirect({ to: "/auth/role" });
+          }
+        }
+      }
     }
   },
   component: FacePage,
 });
-
-interface EyePoint {
-  x: number;
-  y: number;
-}
-
-function calculateDistance(p1: EyePoint, p2: EyePoint) {
-  return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
-}
-
-function calculateEAR(eye: EyePoint[]) {
-  // Eye points mapping:
-  // 0: outer corner
-  // 1, 2: top vertical eyelids
-  // 3: inner corner
-  // 4, 5: bottom vertical eyelids
-  const v1 = calculateDistance(eye[1], eye[5]);
-  const v2 = calculateDistance(eye[2], eye[4]);
-  const h = calculateDistance(eye[0], eye[3]);
-  if (h === 0) return 0;
-  return (v1 + v2) / (2.0 * h);
-}
 
 function FacePage() {
   const navigate = useNavigate();
@@ -265,67 +269,7 @@ function FacePage() {
       }
       const token = session.access_token;
 
-      // =====================================================================
-      // --- COMMON BLINK LIVENESS CHALLENGE (REQUIRED FOR BOTH SIGNUP/LOGIN) ---
-      // =====================================================================
       setState("scanning");
-      setStatusMessage("Liveness Check: Please blink naturally now...");
-
-      const earHistory: number[] = [];
-      const duration = 2500; // Run blink detection loop for 2.5 seconds
-      const startTime = Date.now();
-
-      // Run back-to-back detections as fast as possible to maximize frames/second and catch quick blinks
-      while (Date.now() - startTime < duration) {
-        const detection = await faceapi
-          .detectSingleFace(videoEl)
-          .withFaceLandmarks();
-
-        if (detection) {
-          const leftEye = detection.landmarks.getLeftEye();
-          const rightEye = detection.landmarks.getRightEye();
-
-          const earL = calculateEAR(leftEye);
-          const earR = calculateEAR(rightEye);
-          const avgEAR = (earL + earR) / 2;
-
-          earHistory.push(avgEAR);
-        }
-        // Brief yield to browser event loop
-        await new Promise((r) => setTimeout(r, 10));
-      }
-
-      // Analyze EAR history for blink variance
-      if (earHistory.length < 5) {
-        handleFailure(
-          "Liveness scan incomplete. Keep your face clearly in frame.",
-        );
-        return;
-      }
-
-      const maxEAR = Math.max(...earHistory);
-      const minEAR = Math.min(...earHistory);
-      const earVariance = maxEAR - minEAR;
-
-      // Real-time calculated baseline values for clear console visibility and calibration:
-      console.log(
-        `[Liveness Check] Baseline Open Eye EAR: ${maxEAR.toFixed(4)}, Closed Eye EAR: ${minEAR.toFixed(4)}, Computed EAR Variance: ${earVariance.toFixed(4)}`,
-      );
-
-      // LIVENESS CHALLENGE THRESHOLD:
-      // We set a more forgiving real-world threshold of 0.05. This requires only ONE clear, single blink
-      // (producing a single distinct drop in the Eye Aspect Ratio) to pass the liveness challenge.
-      // Static photos or replay loops exhibit near-zero variance (~0.005 or less), so 0.05 remains secure against spoofs.
-      if (earVariance < 0.05) {
-        handleFailure(
-          "Liveness check failed: No blink detected. Please blink naturally.",
-        );
-        return;
-      }
-
-      // Blink detected successfully! Proceed to capture face descriptor(s)
-      setStatusMessage("Liveness verified. Extracting face template...");
-      await new Promise((r) => setTimeout(r, 200));
 
       if (!hasDescriptor) {
         // =====================================================================

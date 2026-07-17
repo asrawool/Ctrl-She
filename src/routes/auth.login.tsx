@@ -22,13 +22,10 @@ export const Route = createFileRoute("/auth/login")({
         "signup" | "login" | undefined,
     };
   },
-  head: ({ search }) => ({
+  head: () => ({
     meta: [
       {
-        title:
-          search.intent === "signup"
-            ? "Sign Up — IntelliPlant AI"
-            : "Sign In — IntelliPlant AI",
+        title: "Authentication — IntelliPlant AI",
       },
     ],
   }),

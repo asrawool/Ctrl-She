@@ -16,9 +16,12 @@ import {
   getUserRoleFn,
 } from "@/services/webauthn.server";
 
+import { detectRedirectLoop } from "@/lib/redirect-guard";
+
 export const Route = createFileRoute("/app")({
   beforeLoad: async ({ location }) => {
     if (typeof window !== "undefined") {
+      detectRedirectLoop(location.pathname);
       const {
         data: { session },
       } = await supabase.auth.getSession();
