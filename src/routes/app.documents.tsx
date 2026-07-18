@@ -46,7 +46,7 @@ type ProcessingStatus = "pending" | "processing" | "ready" | "error";
 interface Doc {
   id: string;
   name: string;
-  type: "pdf" | "docx" | "xlsx" | "img";
+  type: string;
   size: number;
   category: string;
   tags: string[];
@@ -180,12 +180,30 @@ const SEED: Doc[] = [
   },
 ];
 
-const ICONS = {
+const ICONS: Record<string, typeof FileText> = {
   pdf: FileText,
+  doc: FileText,
   docx: FileText,
+  xls: FileSpreadsheet,
   xlsx: FileSpreadsheet,
-  img: FileImage,
+  csv: FileSpreadsheet,
+  png: FileImage,
+  jpg: FileImage,
+  jpeg: FileImage,
+  webp: FileImage,
 };
+
+function getFileType(fileName: string): string {
+  const ext = fileName.split(".").pop()?.toLowerCase() || "file";
+  if (["pdf", "doc", "docx", "xls", "xlsx", "csv", "png", "jpg", "jpeg", "webp"].includes(ext)) {
+    return ext;
+  }
+  return ext;
+}
+
+function getFileLabel(fileName: string): string {
+  return fileName.split(".").pop()?.toUpperCase() || "FILE";
+}
 const CATEGORIES = [
   "All",
   "Technical Manuals",
@@ -200,6 +218,8 @@ const CATEGORIES = [
   "Policies & Standards",
   "Best Practices & Lessons Learned",
 ];
+
+const DOCUMENTS_BUCKET = "copilot-attachments";
 
 // crypto.randomUUID() only works in secure contexts (HTTPS or localhost).
 // This fallback works everywhere, including LAN IPs / plain HTTP dev servers.
@@ -254,18 +274,12 @@ function Documents() {
     if (!data) return;
 
     const fetched: Doc[] = data.map((row) => {
-      const type = row.name.endsWith(".pdf")
-        ? "pdf"
-        : row.name.match(/\.(xlsx?|csv)$/)
-          ? "xlsx"
-          : row.name.match(/\.docx?$/)
-            ? "docx"
-            : "img";
+      const type = getFileType(row.name);
 
       return {
         id: row.id,
         name: row.name,
-        type: type as Doc["type"],
+        type,
         size: row.size ?? 0,
         category: row.category ?? "Manuals",
         tags: row.tags ?? [],
@@ -385,6 +399,11 @@ function Documents() {
       data: { user },
     } = await supabase.auth.getUser();
 
+    if (!user) {
+      toast.error("You must be signed in to upload documents.");
+      return;
+    }
+
     for (const file of filesToUpload) {
       // 50 MB limit check for Supabase Storage Free Tier
       if (file.size > 50 * 1024 * 1024) {
@@ -409,9 +428,9 @@ function Documents() {
       }, 200);
 
       try {
-        const filePath = `${generateId()}-${file.name}`;
+        const filePath = `${user.id}/${generateId()}-${file.name}`;
         const { error: uploadError } = await supabase.storage
-          .from("documents")
+          .from(DOCUMENTS_BUCKET)
           .upload(filePath, file);
 
         if (uploadError) {
@@ -441,19 +460,13 @@ function Documents() {
           continue;
         }
 
-        const type = file.name.endsWith(".pdf")
-          ? "pdf"
-          : file.name.match(/\.(xlsx?|csv)$/)
-            ? "xlsx"
-            : file.name.match(/\.docx?$/)
-              ? "docx"
-              : "img";
+        const type = getFileType(file.name);
 
         setDocs((d) => [
           {
             id: document.id,
             name: file.name,
-            type: type as Doc["type"],
+            type,
             size: file.size,
             category: uploadMeta.category,
             tags: ["New"],
@@ -521,7 +534,7 @@ function Documents() {
       return;
     }
     const { data, error } = await supabase.storage
-      .from("documents")
+      .from(DOCUMENTS_BUCKET)
       .download(doc.storagePath);
     if (error || !data) {
       console.error("Preview failed:", error);
@@ -539,7 +552,7 @@ function Documents() {
       return;
     }
     const { data, error } = await supabase.storage
-      .from("documents")
+      .from(DOCUMENTS_BUCKET)
       .download(doc.storagePath);
     if (error || !data) {
       console.error("Download failed:", error);
@@ -560,7 +573,7 @@ function Documents() {
 
     if (doc.storagePath) {
       const { error: storageError } = await supabase.storage
-        .from("documents")
+        .from(DOCUMENTS_BUCKET)
         .remove([doc.storagePath]);
       if (storageError) console.error("Storage delete failed:", storageError);
     }
@@ -641,7 +654,7 @@ function Documents() {
           <span className="text-accent underline">browse</span>
         </p>
         <p className="text-xs text-muted-foreground mt-1">
-          PDF, DOCX, XLSX, PNG, JPG · up to 50MB (Free Tier Limit)
+          Any file type · OCR/extraction attempted where possible · up to 50MB (Free Tier Limit)
         </p>
 
         {uploads.length > 0 && (
@@ -741,7 +754,7 @@ function Documents() {
               </thead>
               <tbody>
                 {filtered.map((d) => {
-                  const I = ICONS[d.type];
+                  const I = ICONS[d.type] || FileText;
                   const isReprocessing = !!reprocessing[d.id];
                   return (
                     <tr
@@ -811,7 +824,7 @@ function Documents() {
           ) : (
             <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((d) => {
-                const I = ICONS[d.type];
+                const I = ICONS[d.type] || FileText;
                 const isReprocessing = !!reprocessing[d.id];
                 return (
                   <div
@@ -1097,7 +1110,7 @@ function Documents() {
               Ingest Document Metadata
             </h3>
             <p className="text-xs text-muted-foreground text-center">
-              Configure parameters before start of OCR/RAG chunk embedding.
+              Configure parameters before starting OCR/extraction and RAG chunk indexing.
             </p>
             <div className="space-y-3 text-xs">
               <div>
