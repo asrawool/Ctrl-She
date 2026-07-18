@@ -138,6 +138,7 @@ ${textContent.substring(0, 2500)}`;
   }
 
   return "Uncategorized";
+}
 
 const DOCUMENTS_BUCKET = "copilot-attachments";
 
@@ -243,7 +244,6 @@ async function tryGeminiExtraction(
 
   const geminiData = await geminiResponse.json();
   return geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
 }
 
 serve(async (req) => {
