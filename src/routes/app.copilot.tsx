@@ -1938,15 +1938,19 @@ function Bubble({
 
             {!isUser && (
               <>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
-                  <span className="rounded-full bg-emerald/10 px-2 py-0.5 text-emerald font-semibold border border-emerald/20">
-                    Confidence {Math.round((msg.confidence || 0.92) * 100)}%
-                  </span>
-                  <span className="rounded-full bg-accent/10 px-2 py-0.5 text-accent font-semibold border border-accent/20">
-                    {msg.sources?.length || 0}{" "}
-                    {(msg.sources?.length || 0) === 1 ? "source" : "sources"}
-                  </span>
-                </div>
+                {msg.sources && msg.sources.length > 0 && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                    {msg.confidence !== undefined && msg.confidence > 0 && (
+                      <span className="rounded-full bg-emerald/10 px-2 py-0.5 text-emerald font-semibold border border-emerald/20">
+                        Confidence {Math.round(msg.confidence * 100)}%
+                      </span>
+                    )}
+                    <span className="rounded-full bg-accent/10 px-2 py-0.5 text-accent font-semibold border border-accent/20">
+                      {msg.sources.length}{" "}
+                      {msg.sources.length === 1 ? "source" : "sources"}
+                    </span>
+                  </div>
+                )}
 
                 {/* Citations Badge Info */}
                 {msg.sources && msg.sources.length > 0 && (

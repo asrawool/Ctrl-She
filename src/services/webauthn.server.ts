@@ -165,7 +165,9 @@ export const verifyFaceDescriptorFn = createServerFn({ method: "POST" })
     }
 
     if (!Array.isArray(descriptors) || descriptors.length < 1) {
-      throw new Error("Invalid descriptor samples. Expected at least one face descriptor.");
+      throw new Error(
+        "Invalid descriptor samples. Expected at least one face descriptor.",
+      );
     }
 
     const validDescriptors = descriptors.filter(
@@ -173,7 +175,9 @@ export const verifyFaceDescriptorFn = createServerFn({ method: "POST" })
     );
 
     if (validDescriptors.length === 0) {
-      throw new Error("Invalid descriptor array length. Expected 128 numbers per sample.");
+      throw new Error(
+        "Invalid descriptor array length. Expected 128 numbers per sample.",
+      );
     }
 
     // Fetch stored descriptor
@@ -202,11 +206,15 @@ export const verifyFaceDescriptorFn = createServerFn({ method: "POST" })
     // Require a majority of the samples to match. This is stricter than a single
     // snapshot, but more stable in practice after blink/liveness checks.
     const threshold = 0.5;
-    const matchedSamples = sampleDistances.filter((distance) => distance < threshold);
+    const matchedSamples = sampleDistances.filter(
+      (distance) => distance < threshold,
+    );
     const averageDistance =
       sampleDistances.reduce((sum, distance) => sum + distance, 0) /
       sampleDistances.length;
-    const isMatch = matchedSamples.length >= 2 || (matchedSamples.length === 1 && sampleDistances.length === 1);
+    const isMatch =
+      matchedSamples.length >= 2 ||
+      (matchedSamples.length === 1 && sampleDistances.length === 1);
 
     console.log(
       `[verifyFaceDescriptorFn] Attempted face matching:`,

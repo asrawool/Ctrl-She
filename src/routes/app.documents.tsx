@@ -188,12 +188,17 @@ const ICONS = {
 };
 const CATEGORIES = [
   "All",
-  "Manuals",
-  "SOPs",
-  "Drawings",
-  "Audits",
-  "Incidents",
-  "Data",
+  "Technical Manuals",
+  "Standard Operating Procedures (SOPs)",
+  "Engineering Drawings",
+  "Maintenance Records",
+  "Inspection Reports",
+  "Audit & Compliance",
+  "Incident & Root Cause Reports",
+  "Training & Safety",
+  "Process & Operational Data",
+  "Policies & Standards",
+  "Best Practices & Lessons Learned",
 ];
 
 // crypto.randomUUID() only works in secure contexts (HTTPS or localhost).
@@ -228,7 +233,7 @@ function Documents() {
   // States for upload metadata and editing
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploadMeta, setUploadMeta] = useState({
-    category: "Manuals",
+    category: "Auto Detect",
     asset: "",
     version: "v1.0",
     source: "",
@@ -363,7 +368,7 @@ function Documents() {
     if (!files || files.length === 0) return;
     setPendingFiles(Array.from(files));
     setUploadMeta({
-      category: "Manuals",
+      category: "Auto Detect",
       asset: "",
       version: "v1.0",
       source: "",
@@ -755,7 +760,8 @@ function Documents() {
                         )}
                       </td>
                       <td className="px-4 py-2.5">
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px]">
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] flex items-center gap-1 w-fit">
+                          {d.tags?.includes("Auto-detected") && "✨ "}
                           {d.category}
                         </span>
                       </td>
@@ -845,7 +851,8 @@ function Documents() {
                       {d.name}
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-2">
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-xs text-muted-foreground flex items-center gap-1">
+                        {d.tags?.includes("Auto-detected") && "✨ "}
                         {d.category} · {d.updated}
                       </div>
                       <StatusBadge
@@ -894,6 +901,9 @@ function Documents() {
                       }
                       className="w-full h-8 rounded-lg bg-background border border-border px-2 text-xs outline-none focus:border-accent"
                     >
+                      <option value="Auto Detect">
+                        ✨ Auto Detect (Recommended)
+                      </option>
                       {CATEGORIES.filter((c) => c !== "All").map((c) => (
                         <option key={c}>{c}</option>
                       ))}
@@ -974,7 +984,14 @@ function Documents() {
                   </div>
                 </div>
                 <div className="mt-4 space-y-3 text-sm">
-                  <Field label="Category" value={selected.category} />
+                  <Field
+                    label="Category"
+                    value={
+                      selected.tags?.includes("Auto-detected")
+                        ? `✨ Auto-detected: ${selected.category}`
+                        : selected.category
+                    }
+                  />
                   <Field label="Equipment" value={selected.asset} />
                   <Field label="Source" value={selected.source || "—"} />
                   <Field label="Last Updated" value={selected.updated} />
@@ -1102,6 +1119,9 @@ function Documents() {
                   }
                   className="w-full h-8 rounded-lg bg-background border border-border px-2 text-xs outline-none focus:border-accent"
                 >
+                  <option value="Auto Detect">
+                    ✨ Auto Detect (Recommended)
+                  </option>
                   {CATEGORIES.filter((c) => c !== "All").map((c) => (
                     <option key={c}>{c}</option>
                   ))}

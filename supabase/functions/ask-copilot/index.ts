@@ -135,13 +135,14 @@ ${certifications && certifications.length > 0 ? certifications.map((c) => `- Cer
     if (geminiApiKey) {
       try {
         const embeddingResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${geminiApiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent?key=${geminiApiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              model: "models/text-embedding-004",
+              model: "models/gemini-embedding-2",
               content: { parts: [{ text: question }] },
+              outputDimensionality: 768,
             }),
           },
         );

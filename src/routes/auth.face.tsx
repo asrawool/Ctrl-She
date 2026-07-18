@@ -280,7 +280,9 @@ function FacePage() {
       const startTime = Date.now();
 
       while (Date.now() - startTime < duration) {
-        const detection = await faceapi.detectSingleFace(videoEl).withFaceLandmarks();
+        const detection = await faceapi
+          .detectSingleFace(videoEl)
+          .withFaceLandmarks();
 
         if (detection) {
           const leftEye = detection.landmarks.getLeftEye();
@@ -297,7 +299,9 @@ function FacePage() {
       }
 
       if (earHistory.length < 5) {
-        handleFailure("Liveness scan incomplete. Keep your face clearly in frame.");
+        handleFailure(
+          "Liveness scan incomplete. Keep your face clearly in frame.",
+        );
         return;
       }
 
@@ -310,7 +314,9 @@ function FacePage() {
       );
 
       if (earVariance < 0.05) {
-        handleFailure("Liveness check failed: No blink detected. Please blink naturally.");
+        handleFailure(
+          "Liveness check failed: No blink detected. Please blink naturally.",
+        );
         return;
       }
 
@@ -430,11 +436,15 @@ function FacePage() {
           }
 
           if (!detection) {
-            handleFailure(`Failed to capture verification sample ${s + 1}/3. Please keep your face centered.`);
+            handleFailure(
+              `Failed to capture verification sample ${s + 1}/3. Please keep your face centered.`,
+            );
             return;
           }
 
-          capturedDescriptors.push(Array.from(detection.descriptor) as number[]);
+          capturedDescriptors.push(
+            Array.from(detection.descriptor) as number[],
+          );
         }
 
         const res = await verifyFaceDescriptorFn({
