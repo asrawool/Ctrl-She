@@ -102,6 +102,46 @@ function Page() {
     }
   };
 
+  const recalcFrameworkScore = async (
+    frameworkName: string,
+  ): Promise<number> => {
+    const { data: frameworkInspections, error: insError } = await supabase
+      .from("inspections")
+      .select("status")
+      .eq("framework", frameworkName);
+
+    if (insError) throw insError;
+
+    const { data: frameworkNcrs, error: ncrError } = await supabase
+      .from("ncrs")
+      .select("status")
+      .eq("framework_ref", frameworkName);
+
+    if (ncrError) throw ncrError;
+
+    const totalInspections = frameworkInspections?.length || 0;
+    const completedInspections =
+      frameworkInspections?.filter((i) => i.status === "Completed").length || 0;
+
+    const totalNcrs = frameworkNcrs?.length || 0;
+    const resolvedNcrs =
+      frameworkNcrs?.filter((n) => n.status === "Resolved").length || 0;
+
+    const total = totalInspections + totalNcrs;
+    const successes = completedInspections + resolvedNcrs;
+
+    const newScore = total > 0 ? Math.round((successes / total) * 100) : 100;
+
+    const { error: fwError } = await supabase
+      .from("compliance_frameworks")
+      .update({ current_score: newScore })
+      .eq("name", frameworkName);
+
+    if (fwError) throw fwError;
+
+    return newScore;
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -167,30 +207,10 @@ function Page() {
 
       if (insError) throw insError;
 
-      // Dynamically calculate and update framework score
-      const frameworkName = inspection.framework;
-      const { data: frameworkInspections, error: qError } = await supabase
-        .from("inspections")
-        .select("status")
-        .eq("framework", frameworkName);
-
-      if (qError) throw qError;
-
-      const total = frameworkInspections.length;
-      const completed = frameworkInspections.filter(
-        (i) => i.status === "Completed",
-      ).length;
-      const newScore = total > 0 ? Math.round((completed / total) * 100) : 100;
-
-      const { error: fwError } = await supabase
-        .from("compliance_frameworks")
-        .update({ current_score: newScore })
-        .eq("name", frameworkName);
-
-      if (fwError) throw fwError;
+      const newScore = await recalcFrameworkScore(inspection.framework);
 
       toast.success(
-        `Inspection marked as Completed. ${frameworkName} score updated to ${newScore}%`,
+        `Inspection marked as Completed. ${inspection.framework} score updated to ${newScore}%`,
       );
       fetchData();
     } catch (err: unknown) {
@@ -208,11 +228,19 @@ function Page() {
         .update({
           status: "Resolved",
           resolved_at: new Date().toISOString(),
+          resolution_notes: resolveForm.resolution_notes,
         })
         .eq("id", selectedNcr.id);
 
       if (error) throw error;
-      toast.success(`NCR ${selectedNcr.ncr_number} resolved`);
+
+      const newScore = await recalcFrameworkScore(
+        selectedNcr.framework_ref || "",
+      );
+
+      toast.success(
+        `NCR ${selectedNcr.ncr_number} resolved. ${selectedNcr.framework_ref} score updated to ${newScore}%`,
+      );
       setShowResolveModal(false);
       setSelectedNcr(null);
       setResolveForm({ resolution_notes: "" });
