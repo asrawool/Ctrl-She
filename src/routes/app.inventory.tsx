@@ -263,8 +263,8 @@ function Page() {
         (filterStatus === "All" || a.stock === filterStatus) &&
         (filterCategory === "All" || a.category === filterCategory) &&
         (q === "" ||
-          [a.name, a.item_code, a.manufacturer, a.model, a.supplier].some((f) =>
-            f && f.toLowerCase().includes(q.toLowerCase()),
+          [a.name, a.item_code, a.manufacturer, a.model, a.supplier].some(
+            (f) => f && f.toLowerCase().includes(q.toLowerCase()),
           )),
     );
   }, [withStatus, q, filterStatus, filterCategory]);

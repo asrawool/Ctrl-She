@@ -810,7 +810,8 @@ function Copilot() {
 
       // 6. Get AI response for the new text
       const history = preservedMessages.map((m) => ({
-        role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+        role: (m.role === "user" ? "user" : "assistant") as
+          "user" | "assistant",
         content: m.text,
       }));
       const res = await aiService.ask(newText, [], history);
@@ -1030,7 +1031,8 @@ function Copilot() {
         ? activeConv.messages
             .filter((m) => m.id !== "temp-ai" && m.id !== userMsg.id)
             .map((m) => ({
-              role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+              role: (m.role === "user" ? "user" : "assistant") as
+                "user" | "assistant",
               content: m.text,
             }))
         : [];

@@ -31,7 +31,7 @@ serve(async (req) => {
   }
 
   try {
-    const { question, attachments, history } = await req.json();
+    const { question, attachments, history, forceFallback } = await req.json();
     if (!question) {
       return new Response(
         JSON.stringify({ error: "Missing question parameter" }),
@@ -42,11 +42,14 @@ serve(async (req) => {
       );
     }
 
+    const openRouterApiKey = Deno.env.get("OPENROUTER_API_KEY");
     const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
     const groqApiKey = Deno.env.get("GROQ_API_KEY");
 
-    if (!geminiApiKey && !groqApiKey) {
-      throw new Error("Missing both GEMINI_API_KEY and GROQ_API_KEY secrets.");
+    if (!openRouterApiKey && !geminiApiKey && !groqApiKey) {
+      throw new Error(
+        "Missing LLM API keys. Please configure OPENROUTER_API_KEY, GEMINI_API_KEY, or GROQ_API_KEY.",
+      );
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -221,134 +224,167 @@ ${liveStateContext}`;
     );
     const hasImages = imageAttachments.length > 0;
 
+    const debugLogs: string[] = [];
+    debugLogs.push(`hasImages: ${hasImages}`);
+    debugLogs.push(`imageAttachments length: ${imageAttachments.length}`);
+
     let answer = "";
+    let providerUsed = "";
 
-    // 6. Invoke LLM (Gemini as primary, Groq as fallback)
-    if (geminiApiKey) {
-      console.log("Routing request to Gemini...");
-      const contents: any[] = [];
+    // 6. Invoke LLM (OpenRouter as primary, Gemini/Groq as fallbacks)
+    if (openRouterApiKey && !forceFallback) {
+      try {
+        debugLogs.push("Routing request to OpenRouter (primary)...");
+        const model = hasImages
+          ? "nvidia/nemotron-nano-12b-v2-vl:free"
+          : "meta-llama/llama-3.3-70b-instruct:free";
+        debugLogs.push(`Model selected: ${model}`);
 
-      // History
-      for (const h of history || []) {
-        const role = h.role === "user" ? "user" : "model";
-        contents.push({
-          role,
-          parts: [{ text: h.content }],
-        });
-      }
+        const messages: any[] = [];
+        if (hasImages) {
+          // Add conversation history
+          for (const h of history || []) {
+            const role =
+              h.role === "assistant" || h.role === "ai" || h.role === "model"
+                ? "assistant"
+                : "user";
+            messages.push({ role, content: h.content });
+          }
 
-      // User content parts
-      const currentParts: any[] = [{ text: question }];
-      if (hasImages) {
-        for (const img of imageAttachments) {
-          try {
-            const imgRes = await fetch(img.path);
-            const imgBlob = await imgRes.blob();
-            const buffer = await imgBlob.arrayBuffer();
-            // standard base64 in Deno/Javascript
-            const binary = new Uint8Array(buffer);
-            let binaryString = "";
-            for (let i = 0; i < binary.length; i++) {
-              binaryString += String.fromCharCode(binary[i]);
-            }
-            const base64 = btoa(binaryString);
-            currentParts.push({
-              inlineData: {
-                mimeType: img.type || "image/jpeg",
-                data: base64,
-              },
+          // Combine instructions, question, and plant context into a single user text block
+          const userText = `Perform a precise vision analysis and Optical Character Recognition (OCR) transcription task.
+User Question: ${question}
+
+Please perform an exact character-for-character transcription/analysis of all visible text, numbers, filenames, symbols, and labels in the image with 100% precision. Prioritize exact detail and transcription over summarization.
+
+Context Data (for reference if needed):
+${systemPrompt}`;
+
+          const contentArray: any[] = [{ type: "text", text: userText }];
+          for (const img of imageAttachments) {
+            contentArray.push({
+              type: "image_url",
+              image_url: { url: img.path },
             });
-          } catch (e) {
-            console.error(
-              "Failed to download attachment for Gemini vision:",
-              e,
+          }
+          messages.push({ role: "user", content: contentArray });
+        } else {
+          // Standard text message routing
+          messages.push({ role: "system", content: systemPrompt });
+
+          // Add conversation history
+          for (const h of history || []) {
+            const role =
+              h.role === "assistant" || h.role === "ai" || h.role === "model"
+                ? "assistant"
+                : "user";
+            messages.push({ role, content: h.content });
+          }
+
+          messages.push({ role: "user", content: question });
+        }
+
+        const openRouterResponse = await fetch(
+          "https://openrouter.ai/api/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${openRouterApiKey}`,
+              "HTTP-Referer": "http://localhost:8082",
+              "X-Title": "IntelliPlant AI",
+            },
+            body: JSON.stringify({
+              model,
+              messages,
+              temperature: 0.1,
+            }),
+          },
+        );
+
+        if (openRouterResponse.ok) {
+          const openRouterData = await openRouterResponse.json();
+          if (openRouterData.error) {
+            throw new Error(
+              `OpenRouter returned error: ${JSON.stringify(openRouterData.error)}`,
             );
           }
+          if (!openRouterData.choices || openRouterData.choices.length === 0) {
+            throw new Error(
+              `OpenRouter returned no choices: ${JSON.stringify(openRouterData)}`,
+            );
+          }
+          answer = openRouterData.choices[0].message.content;
+          providerUsed = `OpenRouter (${model})`;
+          console.log(
+            `OpenRouter response successfully received using model: ${model}`,
+          );
+        } else {
+          const errText = await openRouterResponse.text();
+          console.error("OpenRouter API request failed:", errText);
+          throw new Error(`OpenRouter API failed: ${errText}`);
+        }
+      } catch (err) {
+        const error = err as Error;
+        debugLogs.push(`OpenRouter failed: ${error.message}`);
+        if (geminiApiKey) {
+          debugLogs.push("Routing request to Gemini (fallback)...");
+          answer = await callGemini(
+            geminiApiKey,
+            history,
+            question,
+            imageAttachments,
+            hasImages,
+            systemPrompt,
+          );
+          providerUsed = "Gemini (Fallback)";
+        } else if (groqApiKey) {
+          debugLogs.push("Routing request to Groq (fallback)...");
+          answer = await callGroq(
+            groqApiKey,
+            history,
+            question,
+            imageAttachments,
+            hasImages,
+            systemPrompt,
+          );
+          providerUsed = "Groq (Fallback)";
+        } else {
+          throw err;
         }
       }
-
-      contents.push({ role: "user", parts: currentParts });
-
-      const modelName = hasImages ? "gemini-1.5-flash" : "gemini-1.5-pro";
-      const geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents,
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            generationConfig: { temperature: 0.1 },
-          }),
-        },
+    } else if (geminiApiKey) {
+      debugLogs.push(
+        forceFallback
+          ? "Forced fallback routing to Gemini..."
+          : "Routing request to Gemini (direct)...",
       );
-
-      if (geminiResponse.ok) {
-        const geminiData = await geminiResponse.json();
-        answer = geminiData.candidates[0].content.parts[0].text;
-      } else {
-        const errText = await geminiResponse.text();
-        console.error("Gemini API request failed:", errText);
-        throw new Error(`Gemini API failed: ${errText}`);
-      }
+      answer = await callGemini(
+        geminiApiKey,
+        history,
+        question,
+        imageAttachments,
+        hasImages,
+        systemPrompt,
+      );
+      providerUsed = "Gemini";
     } else if (groqApiKey) {
-      console.log("Routing request to Groq (fallback)...");
-      const messages: any[] = [];
-      messages.push({ role: "system", content: systemPrompt });
-
-      // Add conversation history
-      for (const h of history || []) {
-        const role =
-          h.role === "assistant" || h.role === "ai" || h.role === "model"
-            ? "assistant"
-            : "user";
-        messages.push({ role, content: h.content });
-      }
-
-      // Add user message
-      if (hasImages) {
-        const contentArray: any[] = [{ type: "text", text: question }];
-        for (const img of imageAttachments) {
-          contentArray.push({
-            type: "image_url",
-            image_url: { url: img.path },
-          });
-        }
-        messages.push({ role: "user", content: contentArray });
-      } else {
-        messages.push({ role: "user", content: question });
-      }
-
-      const model = hasImages
-        ? "llama-3.2-11b-vision-preview"
-        : "llama-3.3-70b-versatile";
-
-      const groqResponse = await fetch(
-        "https://api.groq.com/openai/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${groqApiKey}`,
-          },
-          body: JSON.stringify({
-            model,
-            messages,
-            temperature: 0.1,
-          }),
-        },
+      debugLogs.push(
+        forceFallback
+          ? "Forced fallback routing to Groq..."
+          : "Routing request to Groq (direct)...",
       );
-
-      if (groqResponse.ok) {
-        const groqData = await groqResponse.json();
-        answer = groqData.choices[0].message.content;
-      } else {
-        const errText = await groqResponse.text();
-        console.error("Groq API request failed:", errText);
-        throw new Error(`Groq API failed: ${errText}`);
-      }
+      answer = await callGroq(
+        groqApiKey,
+        history,
+        question,
+        imageAttachments,
+        hasImages,
+        systemPrompt,
+      );
+      providerUsed = "Groq";
     } else {
-      throw new Error("Neither GEMINI_API_KEY nor GROQ_API_KEY is configured.");
+      throw new Error("No configured LLM API keys found.");
     }
 
     // 7. Format sources to return to client
@@ -362,9 +398,12 @@ ${liveStateContext}`;
       };
     });
 
-    return new Response(JSON.stringify({ answer, sources }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ answer, sources, debugLogs, providerUsed }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   } catch (err) {
     const error = err as Error;
     console.error("ask-copilot error:", error.message);
@@ -374,3 +413,139 @@ ${liveStateContext}`;
     });
   }
 });
+
+async function callGemini(
+  geminiApiKey: string,
+  history: any[],
+  question: string,
+  imageAttachments: any[],
+  hasImages: boolean,
+  systemPrompt: string,
+): Promise<string> {
+  const contents: any[] = [];
+
+  // History
+  for (const h of history || []) {
+    const role = h.role === "user" ? "user" : "model";
+    contents.push({
+      role,
+      parts: [{ text: h.content }],
+    });
+  }
+
+  // User content parts
+  const currentParts: any[] = [{ text: question }];
+  if (hasImages) {
+    for (const img of imageAttachments) {
+      try {
+        const imgRes = await fetch(img.path);
+        const imgBlob = await imgRes.blob();
+        const buffer = await imgBlob.arrayBuffer();
+        const binary = new Uint8Array(buffer);
+        let binaryString = "";
+        for (let i = 0; i < binary.length; i++) {
+          binaryString += String.fromCharCode(binary[i]);
+        }
+        const base64 = btoa(binaryString);
+        currentParts.push({
+          inlineData: {
+            mimeType: img.type || "image/jpeg",
+            data: base64,
+          },
+        });
+      } catch (e) {
+        console.error("Failed to download attachment for Gemini vision:", e);
+      }
+    }
+  }
+
+  contents.push({ role: "user", parts: currentParts });
+
+  // Use gemini-3.5-flash for fallback to prevent model-not-found errors
+  const modelName = "gemini-3.5-flash";
+  const geminiResponse = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents,
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: { temperature: 0.1 },
+      }),
+    },
+  );
+
+  if (geminiResponse.ok) {
+    const geminiData = await geminiResponse.json();
+    return geminiData.candidates[0].content.parts[0].text;
+  } else {
+    const errText = await geminiResponse.text();
+    console.error("Gemini API request failed:", errText);
+    throw new Error(`Gemini API failed: ${errText}`);
+  }
+}
+
+async function callGroq(
+  groqApiKey: string,
+  history: any[],
+  question: string,
+  imageAttachments: any[],
+  hasImages: boolean,
+  systemPrompt: string,
+): Promise<string> {
+  const messages: any[] = [];
+  messages.push({ role: "system", content: systemPrompt });
+
+  // Add conversation history
+  for (const h of history || []) {
+    const role =
+      h.role === "assistant" || h.role === "ai" || h.role === "model"
+        ? "assistant"
+        : "user";
+    messages.push({ role, content: h.content });
+  }
+
+  // Add user message
+  if (hasImages) {
+    const contentArray: any[] = [{ type: "text", text: question }];
+    for (const img of imageAttachments) {
+      contentArray.push({
+        type: "image_url",
+        image_url: { url: img.path },
+      });
+    }
+    messages.push({ role: "user", content: contentArray });
+  } else {
+    messages.push({ role: "user", content: question });
+  }
+
+  const model = hasImages
+    ? "llama-3.2-11b-vision-preview"
+    : "llama-3.3-70b-versatile";
+
+  const groqResponse = await fetch(
+    "https://api.groq.com/openai/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${groqApiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.1,
+      }),
+    },
+  );
+
+  if (groqResponse.ok) {
+    const groqData = await groqResponse.json();
+    return groqData.choices[0].message.content;
+  } else {
+    const errText = await groqResponse.text();
+    console.error("Groq API request failed:", errText);
+    throw new Error(`Groq API failed: ${errText}`);
+  }
+}

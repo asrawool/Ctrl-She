@@ -51,9 +51,9 @@ export const aiService = {
 
     if (error) {
       console.error("ask-copilot failed:", error);
+      const reason = error.message || "Unknown error";
       return {
-        answer:
-          "Sorry, something went wrong reaching the AI Copilot. Please try again.",
+        answer: `AI Copilot is temporarily unavailable. (Detail: ${reason})`,
         citations: [] as Array<{ id: string; label: string; page?: number }>,
         confidence: 0,
       };
