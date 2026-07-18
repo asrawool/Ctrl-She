@@ -58,6 +58,7 @@ interface AuthState {
   setRole: (r: Role, custom?: string) => void;
   setLanguage: (l: string) => void;
   toggleTheme: () => void;
+  setTheme: (theme: "light" | "dark") => void;
   logout: () => void;
 }
 
@@ -100,6 +101,13 @@ export const useAuth = create<AuthState>()(
       toggleTheme: () =>
         set((s) => {
           const theme = s.theme === "light" ? "dark" : "light";
+          if (typeof document !== "undefined") {
+            document.documentElement.classList.toggle("dark", theme === "dark");
+          }
+          return { theme };
+        }),
+      setTheme: (theme) =>
+        set(() => {
           if (typeof document !== "undefined") {
             document.documentElement.classList.toggle("dark", theme === "dark");
           }

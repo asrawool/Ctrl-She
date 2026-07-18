@@ -1,43 +1,92 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/app/PageHeader";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Loader2, Bell, Palette } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/store/auth";
 import {
-  Bell,
-  Bot,
-  Palette,
-  Globe,
-  ShieldCheck,
-  KeyRound,
-  Zap,
-  Plug,
-} from "lucide-react";
+  getNotificationSettingsFn,
+  saveNotificationSettingsFn,
+  type NotificationSettings,
+} from "@/services/settings.server";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/settings")({
   head: () => ({ meta: [{ title: "Settings — IntelliPlant AI" }] }),
   component: Page,
 });
 
+// Only tabs with real, working functionality are shown for now.
+// AI / Language / Security / Permissions / API / Integrations
+// will come back once there's actual data/logic behind them.
 const TABS = [
   { id: "general", l: "General", i: Palette },
-  { id: "ai", l: "AI", i: Bot },
   { id: "notifications", l: "Notifications", i: Bell },
-  { id: "language", l: "Language", i: Globe },
-  { id: "security", l: "Security", i: ShieldCheck },
-  { id: "permissions", l: "Permissions", i: KeyRound },
-  { id: "api", l: "API", i: Zap },
-  { id: "integrations", l: "Integrations", i: Plug },
 ];
+
+async function getToken() {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) throw new Error("Session expired. Please sign in again.");
+  return session.access_token;
+}
 
 function Page() {
   const [tab, setTab] = useState("general");
+
+  // Theme lives in the local Zustand auth store (already wired to
+  // document.documentElement class toggling) so switching it actually
+  // changes the UI immediately, and persists via the store's own
+  // localStorage persistence.
+  const theme = useAuth((s) => s.theme);
+  const setTheme = useAuth((s) => s.setTheme);
+
+  // Notifications are workspace-wide, stored in Supabase.
+  const [notif, setNotif] = useState<NotificationSettings | null>(null);
+  const [loadingNotif, setLoadingNotif] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (tab !== "notifications" || notif) return;
+    (async () => {
+      try {
+        const token = await getToken();
+        const data = await getNotificationSettingsFn({ data: { token } });
+        setNotif(data);
+      } catch (err) {
+        console.error("Failed to load notification settings:", err);
+        toast.error("Could not load notification settings.");
+      } finally {
+        setLoadingNotif(false);
+      }
+    })();
+  }, [tab, notif]);
+
+  const saveNotifications = async (patch: Partial<NotificationSettings>) => {
+    if (!notif) return;
+    const prev = notif;
+    const next = { ...notif, ...patch };
+    setNotif(next);
+    setSaving(true);
+    try {
+      const token = await getToken();
+      await saveNotificationSettingsFn({ data: { token, ...next } });
+      toast.success("Notification preferences updated");
+    } catch (err) {
+      setNotif(prev);
+      console.error(err);
+      toast.error("Failed to save notification settings");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <>
       <PageHeader
         title="Settings"
-        description="Manage workspace preferences, AI behavior, notifications and integrations."
+        description="Manage workspace preferences and notifications."
       />
 
       <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
@@ -58,152 +107,64 @@ function Page() {
 
         <div className="rounded-2xl border border-border bg-card p-6 space-y-6">
           {tab === "general" && (
-            <>
-              <Section title="Appearance">
-                <Row label="Theme" desc="Light or dark workspace">
-                  <select className="h-9 rounded-lg border border-border bg-background px-3 text-sm">
-                    <option>System</option>
-                    <option>Light</option>
-                    <option>Dark</option>
-                  </select>
-                </Row>
-                <Row
-                  label="Density"
-                  desc="Compact reduces spacing across the app"
+            <Section title="Appearance">
+              <Row label="Theme" desc="Light or dark workspace">
+                <select
+                  value={theme}
+                  onChange={(e) => setTheme(e.target.value as "light" | "dark")}
+                  className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
                 >
-                  <select className="h-9 rounded-lg border border-border bg-background px-3 text-sm">
-                    <option>Comfortable</option>
-                    <option>Compact</option>
-                  </select>
-                </Row>
-              </Section>
-            </>
-          )}
-
-          {tab === "ai" && (
-            <Section title="AI Copilot">
-              <Row label="Response style" desc="How the AI presents answers">
-                <select className="h-9 rounded-lg border border-border bg-background px-3 text-sm">
-                  <option>Engineer-grade (detailed)</option>
-                  <option>Executive summary</option>
-                  <option>Step-by-step</option>
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
                 </select>
-              </Row>
-              <Row
-                label="Confidence threshold"
-                desc="Minimum confidence to show a recommendation"
-              >
-                <input
-                  type="range"
-                  min="50"
-                  max="99"
-                  defaultValue="80"
-                  className="w-40"
-                />
-              </Row>
-              <Row label="Voice output" desc="Read AI responses aloud">
-                <Switch />
               </Row>
             </Section>
           )}
 
           {tab === "notifications" && (
-            <Section title="Notification channels">
-              {["Email", "In-app", "Mobile push", "SMS (critical only)"].map(
-                (c) => (
-                  <Row key={c} label={c}>
-                    <Switch defaultOn />
+            <>
+              {loadingNotif || !notif ? (
+                <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading
+                  settings...
+                </div>
+              ) : (
+                <Section title="Notification channels">
+                  <Row label="Email">
+                    <Switch
+                      checked={notif.notify_email}
+                      disabled={saving}
+                      onChange={(v) => saveNotifications({ notify_email: v })}
+                    />
                   </Row>
-                ),
+                  <Row label="In-app">
+                    <Switch
+                      checked={notif.notify_inapp}
+                      disabled={saving}
+                      onChange={(v) => saveNotifications({ notify_inapp: v })}
+                    />
+                  </Row>
+                  <Row label="Mobile push">
+                    <Switch
+                      checked={notif.notify_mobile_push}
+                      disabled={saving}
+                      onChange={(v) =>
+                        saveNotifications({ notify_mobile_push: v })
+                      }
+                    />
+                  </Row>
+                  <Row label="SMS (critical only)">
+                    <Switch
+                      checked={notif.notify_sms_critical}
+                      disabled={saving}
+                      onChange={(v) =>
+                        saveNotifications({ notify_sms_critical: v })
+                      }
+                    />
+                  </Row>
+                </Section>
               )}
-            </Section>
-          )}
-
-          {tab === "language" && (
-            <Section title="Language & Region">
-              <Row label="Interface language">
-                <select className="h-9 rounded-lg border border-border bg-background px-3 text-sm">
-                  <option>English</option>
-                  <option>हिन्दी</option>
-                  <option>मराठी</option>
-                  <option>ગુજરાતી</option>
-                  <option>தமிழ்</option>
-                </select>
-              </Row>
-              <Row label="Units">
-                <select className="h-9 rounded-lg border border-border bg-background px-3 text-sm">
-                  <option>Metric (SI)</option>
-                  <option>Imperial</option>
-                </select>
-              </Row>
-            </Section>
-          )}
-
-          {tab === "security" && (
-            <Section title="Account security">
-              <Row label="Change password">
-                <Button variant="outline" size="sm">
-                  Update
-                </Button>
-              </Row>
-              <Row
-                label="Two-factor authentication"
-                desc="Face ID + OTP enabled"
-              >
-                <span className="text-xs font-semibold text-emerald">
-                  Enabled
-                </span>
-              </Row>
-              <Row label="Active sessions" desc="Sign out from other devices">
-                <Button variant="outline" size="sm">
-                  Manage
-                </Button>
-              </Row>
-            </Section>
-          )}
-
-          {tab === "permissions" && (
-            <Section title="Role permissions">
-              <p className="text-sm text-muted-foreground">
-                Fine-grained permissions are managed by your plant
-                administrator. Contact them to request access to additional
-                modules.
-              </p>
-            </Section>
-          )}
-
-          {tab === "api" && (
-            <Section title="API connections">
-              <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground text-center">
-                No API keys configured. Wire this section to your backend to
-                manage keys.
-              </div>
-            </Section>
-          )}
-
-          {tab === "integrations" && (
-            <Section title="Integrations">
-              <div className="grid gap-2 sm:grid-cols-2">
-                {[
-                  "SAP PM",
-                  "IBM Maximo",
-                  "Oracle EAM",
-                  "Microsoft 365",
-                  "Slack",
-                  "Google Workspace",
-                ].map((n) => (
-                  <div
-                    key={n}
-                    className="flex items-center justify-between rounded-xl border border-border p-3 text-sm"
-                  >
-                    <span className="font-medium">{n}</span>
-                    <Button variant="outline" size="sm">
-                      Connect
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </Section>
+            </>
           )}
         </div>
       </div>
@@ -225,6 +186,7 @@ function Section({
     </div>
   );
 }
+
 function Row({
   label,
   desc,
@@ -246,18 +208,25 @@ function Row({
     </div>
   );
 }
-function Switch({ defaultOn }: { defaultOn?: boolean } = {}) {
-  const [on, setOn] = useState(!!defaultOn);
+
+function Switch({
+  checked,
+  onChange,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
   return (
     <button
-      onClick={() => setOn(!on)}
-      className={`relative h-5 w-9 rounded-full transition ${on ? "bg-accent" : "bg-muted"}`}
+      onClick={() => !disabled && onChange(!checked)}
+      disabled={disabled}
+      className={`relative h-5 w-9 rounded-full transition disabled:opacity-50 ${checked ? "bg-accent" : "bg-muted"}`}
     >
       <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${on ? "translate-x-4" : "translate-x-0.5"}`}
+        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-4" : "translate-x-0.5"}`}
       />
     </button>
   );
 }
-// silence unused
-void Input;
