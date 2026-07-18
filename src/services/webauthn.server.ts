@@ -150,8 +150,8 @@ export const registerFaceDescriptorFn = createServerFn({ method: "POST" })
 
 // Verify face descriptor against enrolled one (server-side comparison)
 export const verifyFaceDescriptorFn = createServerFn({ method: "POST" })
-  .validator((d: { descriptor: number[]; token: string }) => d)
-  .handler(async ({ data: { descriptor, token } }) => {
+  .validator((d: { descriptors: number[][]; token: string }) => d)
+  .handler(async ({ data: { descriptors, token } }) => {
     const supabase = getSupabaseClient(token);
     const {
       data: { user },
@@ -164,8 +164,16 @@ export const verifyFaceDescriptorFn = createServerFn({ method: "POST" })
       );
     }
 
-    if (!descriptor || descriptor.length !== 128) {
-      throw new Error("Invalid descriptor array length. Expected 128 numbers.");
+    if (!Array.isArray(descriptors) || descriptors.length < 1) {
+      throw new Error("Invalid descriptor samples. Expected at least one face descriptor.");
+    }
+
+    const validDescriptors = descriptors.filter(
+      (descriptor) => Array.isArray(descriptor) && descriptor.length === 128,
+    );
+
+    if (validDescriptors.length === 0) {
+      throw new Error("Invalid descriptor array length. Expected 128 numbers per sample.");
     }
 
     // Fetch stored descriptor
@@ -183,24 +191,30 @@ export const verifyFaceDescriptorFn = createServerFn({ method: "POST" })
 
     const storedDescriptor = storedData.descriptor as number[];
 
-    // Compute Euclidean distance
-    let sum = 0;
-    for (let i = 0; i < 128; i++) {
-      sum += Math.pow(descriptor[i] - storedDescriptor[i], 2);
-    }
-    const distance = Math.sqrt(sum);
+    const sampleDistances = validDescriptors.map((descriptor) => {
+      let sum = 0;
+      for (let i = 0; i < 128; i++) {
+        sum += Math.pow(descriptor[i] - storedDescriptor[i], 2);
+      }
+      return Math.sqrt(sum);
+    });
 
-    // SECURITY THRESHOLD:
-    // face-api.js default threshold is 0.6, which is optimized for loose photo tagging.
-    // In secure enterprise login/auth systems, 0.40 - 0.45 is recommended to avoid false accepts.
-    // We set a strict threshold of 0.45.
-    const isMatch = distance < 0.45;
+    // Require a majority of the samples to match. This is stricter than a single
+    // snapshot, but more stable in practice after blink/liveness checks.
+    const threshold = 0.5;
+    const matchedSamples = sampleDistances.filter((distance) => distance < threshold);
+    const averageDistance =
+      sampleDistances.reduce((sum, distance) => sum + distance, 0) /
+      sampleDistances.length;
+    const isMatch = matchedSamples.length >= 2 || (matchedSamples.length === 1 && sampleDistances.length === 1);
 
     console.log(
       `[verifyFaceDescriptorFn] Attempted face matching:`,
       `User ID: ${user.id}`,
-      `Exact Euclidean Distance: ${distance.toFixed(6)}`,
-      `Threshold: 0.45`,
+      `Sample Distances: ${sampleDistances.map((distance) => distance.toFixed(6)).join(", ")}`,
+      `Average Distance: ${averageDistance.toFixed(6)}`,
+      `Threshold: ${threshold}`,
+      `Matched Samples: ${matchedSamples.length}/${sampleDistances.length}`,
       `Match Confirmed: ${isMatch}`,
     );
 
@@ -227,7 +241,12 @@ export const verifyFaceDescriptorFn = createServerFn({ method: "POST" })
       }
     }
 
-    return { verified: isMatch, distance };
+    return {
+      verified: isMatch,
+      distance: averageDistance,
+      matchedSamples: matchedSamples.length,
+      totalSamples: sampleDistances.length,
+    };
   });
 
 // Validate session verification status
@@ -254,8 +273,21 @@ export const checkSessionVerificationFn = createServerFn({ method: "POST" })
       return { verified: false };
     }
 
-    // Enforce expiry limit (e.g. 12 hours)
+    const lastSignInAt = user.last_sign_in_at
+      ? new Date(user.last_sign_in_at).getTime()
+      : 0;
+
+    if (!lastSignInAt) {
+      return { verified: false };
+    }
+
     const verifiedAt = new Date(data.verified_at).getTime();
+
+    if (Number.isNaN(verifiedAt) || verifiedAt < lastSignInAt) {
+      return { verified: false };
+    }
+
+    // Enforce expiry limit (e.g. 12 hours)
     const now = new Date().getTime();
     const diffHours = (now - verifiedAt) / (1000 * 60 * 60);
 

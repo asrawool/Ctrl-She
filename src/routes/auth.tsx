@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { useAuth } from "@/store/auth";
+import { ensureAuthHydrated, useAuth } from "@/store/auth";
 import { supabase } from "@/lib/supabase";
 import { detectRedirectLoop } from "@/lib/redirect-guard";
 
@@ -7,6 +7,7 @@ export const Route = createFileRoute("/auth")({
   beforeLoad: async ({ location }) => {
     // Redirect authenticated users away from auth flow
     if (typeof window !== "undefined") {
+      await ensureAuthHydrated();
       detectRedirectLoop(location.pathname);
 
       const {

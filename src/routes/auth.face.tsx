@@ -16,20 +16,24 @@ import {
 } from "lucide-react";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/store/auth";
+import { ensureAuthHydrated, useAuth } from "@/store/auth";
 import { supabase } from "@/lib/supabase";
 import {
   hasFaceDescriptorFn,
   registerFaceDescriptorFn,
   verifyFaceDescriptorFn,
   getUserRoleFn,
-  checkSessionVerificationFn,
 } from "@/services/webauthn.server";
 import { toast } from "sonner";
 import type * as FaceApiType from "@vladmandic/face-api";
 import { detectRedirectLoop } from "@/lib/redirect-guard";
 
 type State = "waiting" | "scanning" | "verifying" | "verified";
+
+interface EyePoint {
+  x: number;
+  y: number;
+}
 
 type FaceSearch = {
   reset?: boolean;
@@ -44,6 +48,7 @@ export const Route = createFileRoute("/auth/face")({
   head: () => ({ meta: [{ title: "Face ID — IntelliPlant AI" }] }),
   beforeLoad: async ({ search }) => {
     if (typeof window !== "undefined") {
+      await ensureAuthHydrated();
       detectRedirectLoop("/auth/face");
 
       const {
@@ -57,31 +62,28 @@ export const Route = createFileRoute("/auth/face")({
         throw redirect({ to: "/auth/login" });
       }
 
-      // Check server-side verification status to decide if scan can be skipped
       const token = session.access_token;
       const isReset = search && search.reset === true;
 
-      if (!isReset) {
-        const verification = await checkSessionVerificationFn({
-          data: { token },
-        });
-
-        if (verification.verified) {
-          const roleRes = await getUserRoleFn({ data: { token } });
-          if (roleRes.role) {
-            useAuth
-              .getState()
-              .setRole(roleRes.role, roleRes.customRole || undefined);
-            throw redirect({ to: "/app/dashboard" });
-          } else {
-            throw redirect({ to: "/auth/role" });
-          }
-        }
+      if (isReset) {
+        useAuth.setState({ faceVerified: false });
       }
     }
   },
   component: FacePage,
 });
+
+function calculateDistance(p1: EyePoint, p2: EyePoint) {
+  return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+}
+
+function calculateEAR(eye: EyePoint[]) {
+  const v1 = calculateDistance(eye[1], eye[5]);
+  const v2 = calculateDistance(eye[2], eye[4]);
+  const h = calculateDistance(eye[0], eye[3]);
+  if (h === 0) return 0;
+  return (v1 + v2) / (2.0 * h);
+}
 
 function FacePage() {
   const navigate = useNavigate();
@@ -269,7 +271,51 @@ function FacePage() {
       }
       const token = session.access_token;
 
+      // Liveness challenge: require a blink before reading face descriptors.
       setState("scanning");
+      setStatusMessage("Liveness Check: Please blink naturally now...");
+
+      const earHistory: number[] = [];
+      const duration = 2500;
+      const startTime = Date.now();
+
+      while (Date.now() - startTime < duration) {
+        const detection = await faceapi.detectSingleFace(videoEl).withFaceLandmarks();
+
+        if (detection) {
+          const leftEye = detection.landmarks.getLeftEye();
+          const rightEye = detection.landmarks.getRightEye();
+
+          const earL = calculateEAR(leftEye);
+          const earR = calculateEAR(rightEye);
+          const avgEAR = (earL + earR) / 2;
+
+          earHistory.push(avgEAR);
+        }
+
+        await new Promise((r) => setTimeout(r, 10));
+      }
+
+      if (earHistory.length < 5) {
+        handleFailure("Liveness scan incomplete. Keep your face clearly in frame.");
+        return;
+      }
+
+      const maxEAR = Math.max(...earHistory);
+      const minEAR = Math.min(...earHistory);
+      const earVariance = maxEAR - minEAR;
+
+      console.log(
+        `[Liveness Check] Baseline Open Eye EAR: ${maxEAR.toFixed(4)}, Closed Eye EAR: ${minEAR.toFixed(4)}, Computed EAR Variance: ${earVariance.toFixed(4)}`,
+      );
+
+      if (earVariance < 0.05) {
+        handleFailure("Liveness check failed: No blink detected. Please blink naturally.");
+        return;
+      }
+
+      setStatusMessage("Liveness verified. Extracting face template...");
+      await new Promise((r) => setTimeout(r, 200));
 
       if (!hasDescriptor) {
         // =====================================================================
@@ -361,25 +407,38 @@ function FacePage() {
         // =====================================================================
         // --- VERIFICATION MATCHING ---
         // =====================================================================
-        const finalDetection = await faceapi
-          .detectSingleFace(videoEl)
-          .withFaceLandmarks()
-          .withFaceDescriptor();
+        setState("verifying");
+        setStatusMessage("Verifying identity with multiple face samples...");
 
-        if (!finalDetection) {
-          handleFailure("Failed to capture face descriptor. Please retry.");
-          return;
+        const capturedDescriptors: number[][] = [];
+        for (let s = 0; s < 3; s++) {
+          setStatusMessage(`Verifying sample ${s + 1}/3...`);
+          await new Promise((r) => setTimeout(r, 250));
+
+          let detection = null;
+          let retries = 0;
+          while (!detection && retries < 3) {
+            detection = await faceapi
+              .detectSingleFace(videoEl)
+              .withFaceLandmarks()
+              .withFaceDescriptor();
+
+            if (!detection) {
+              retries++;
+              await new Promise((r) => setTimeout(r, 150));
+            }
+          }
+
+          if (!detection) {
+            handleFailure(`Failed to capture verification sample ${s + 1}/3. Please keep your face centered.`);
+            return;
+          }
+
+          capturedDescriptors.push(Array.from(detection.descriptor) as number[]);
         }
 
-        setState("verifying");
-        setStatusMessage("Verifying identity with server...");
-
-        const descriptorArray = Array.from(
-          finalDetection.descriptor,
-        ) as number[];
-
         const res = await verifyFaceDescriptorFn({
-          data: { descriptor: descriptorArray, token },
+          data: { descriptors: capturedDescriptors, token },
         });
 
         if (res.verified) {

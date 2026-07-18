@@ -5,7 +5,7 @@ import { ArrowRight, Check, Loader2 } from "lucide-react";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ROLES, useAuth, type Role } from "@/store/auth";
+import { ROLES, ensureAuthHydrated, useAuth, type Role } from "@/store/auth";
 import { supabase } from "@/lib/supabase";
 import { saveUserRoleFn } from "@/services/webauthn.server";
 import { toast } from "sonner";
@@ -14,6 +14,7 @@ export const Route = createFileRoute("/auth/role")({
   head: () => ({ meta: [{ title: "Select Role — IntelliPlant AI" }] }),
   beforeLoad: async () => {
     if (typeof window !== "undefined") {
+      await ensureAuthHydrated();
       const {
         data: { session },
       } = await supabase.auth.getSession();

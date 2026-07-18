@@ -75,7 +75,16 @@ export const useAuth = create<AuthState>()(
       language: "en",
       theme: "light",
       setEmail: (email, exists = false) =>
-        set({ email, isExistingUser: exists, step: "otp" }),
+        set({
+          email,
+          isExistingUser: exists,
+          step: "otp",
+          role: null,
+          customRole: null,
+          otpVerified: false,
+          faceVerified: false,
+          authenticated: false,
+        }),
       setStep: (step) => set({ step }),
       setOtpVerified: (v) => set({ otpVerified: v, step: v ? "face" : "otp" }),
       setFaceVerified: (v) =>
@@ -112,6 +121,13 @@ export const useAuth = create<AuthState>()(
     { name: "intelliplant-auth" },
   ),
 );
+
+export async function ensureAuthHydrated() {
+  if (typeof window === "undefined") return;
+  if (!useAuth.persist.hasHydrated()) {
+    await useAuth.persist.rehydrate();
+  }
+}
 
 // Subscribe to Supabase Auth state changes to keep authenticated field trustworthy
 if (typeof window !== "undefined") {

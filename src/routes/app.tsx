@@ -8,7 +8,7 @@ import {
 import { useEffect, useState } from "react";
 import { AppSidebar } from "@/components/app/AppSidebar";
 import { AppTopbar } from "@/components/app/AppTopbar";
-import { useAuth } from "@/store/auth";
+import { ensureAuthHydrated, useAuth } from "@/store/auth";
 import { canAccess, type ModuleKey } from "@/services/rbac";
 import { supabase } from "@/lib/supabase";
 import {
@@ -21,6 +21,7 @@ import { detectRedirectLoop } from "@/lib/redirect-guard";
 export const Route = createFileRoute("/app")({
   beforeLoad: async ({ location }) => {
     if (typeof window !== "undefined") {
+      await ensureAuthHydrated();
       detectRedirectLoop(location.pathname);
       const {
         data: { session },
