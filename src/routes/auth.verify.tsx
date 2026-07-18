@@ -4,13 +4,14 @@ import { Loader2, CheckCircle2, RefreshCw, ArrowRight } from "lucide-react";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { Button } from "@/components/ui/button";
 import { authService } from "@/services/auth.service";
-import { useAuth } from "@/store/auth";
+import { ensureAuthHydrated, useAuth } from "@/store/auth";
 import { supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/auth/verify")({
   head: () => ({ meta: [{ title: "Verify OTP — IntelliPlant AI" }] }),
   beforeLoad: async () => {
     if (typeof window !== "undefined") {
+      await ensureAuthHydrated();
       const {
         data: { session },
       } = await supabase.auth.getSession();
