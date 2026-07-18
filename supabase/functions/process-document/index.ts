@@ -7,6 +7,112 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+const DOCUMENTS_BUCKET = "copilot-attachments";
+
+function detectMimeType(fileName: string) {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+
+  switch (ext) {
+    case "pdf":
+      return "application/pdf";
+    case "doc":
+      return "application/msword";
+    case "docx":
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    case "xls":
+      return "application/vnd.ms-excel";
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    case "png":
+      return "image/png";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+function extractPrintableText(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunks: string[] = [];
+  let current = "";
+
+  for (let i = 0; i < bytes.length; i++) {
+    const code = bytes[i];
+    const isPrintable = code >= 32 && code <= 126;
+    const isWhitespace = code === 9 || code === 10 || code === 13;
+
+    if (isPrintable || isWhitespace) {
+      current += String.fromCharCode(code);
+      continue;
+    }
+
+    if (current.trim().length >= 4) {
+      chunks.push(current.trim());
+    }
+    current = "";
+  }
+
+  if (current.trim().length >= 4) {
+    chunks.push(current.trim());
+  }
+
+  return chunks.slice(0, 200).join("\n");
+}
+
+async function tryGeminiExtraction(
+  fileBlob: Blob,
+  mimeType: string,
+  prompt: string,
+  geminiApiKey: string,
+) {
+  const buffer = await fileBlob.arrayBuffer();
+  const binary = new Uint8Array(buffer);
+  let binaryString = "";
+  for (let i = 0; i < binary.length; i++) {
+    binaryString += String.fromCharCode(binary[i]);
+  }
+  const base64 = btoa(binaryString);
+
+  const geminiResponse = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: prompt,
+              },
+              {
+                inlineData: {
+                  mimeType,
+                  data: base64,
+                },
+              },
+            ],
+          },
+        ],
+        generationConfig: { temperature: 0.1 },
+      }),
+    },
+  );
+
+  if (!geminiResponse.ok) {
+    const errText = await geminiResponse.text();
+    throw new Error(`Gemini text extraction failed: ${errText}`);
+  }
+
+  const geminiData = await geminiResponse.json();
+  return geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -55,7 +161,7 @@ serve(async (req) => {
 
     // 2. Download file from storage
     const { data: fileBlob, error: downloadError } = await supabase.storage
-      .from("documents")
+      .from(DOCUMENTS_BUCKET)
       .download(doc.storage_path);
 
     if (downloadError || !fileBlob) {
@@ -65,71 +171,28 @@ serve(async (req) => {
     // 3. Extract text content
     let textContent = "";
     const ext = doc.name.split(".").pop()?.toLowerCase();
+    const mimeType = detectMimeType(doc.name);
 
     if (ext === "txt" || ext === "csv" || ext === "json") {
       textContent = await fileBlob.text();
     } else {
-      // PDF, DOCX, XLSX, Image: use Gemini multimodal API to extract text
-      const buffer = await fileBlob.arrayBuffer();
-      const binary = new Uint8Array(buffer);
-      let binaryString = "";
-      for (let i = 0; i < binary.length; i++) {
-        binaryString += String.fromCharCode(binary[i]);
+      try {
+        textContent = await tryGeminiExtraction(
+          fileBlob,
+          mimeType,
+          "Extract all readable text, checklists, data columns, procedures, tables, annotations, dimensions, tags, title block text, callouts, and notes from this document. Do not summarize; extract the complete content exactly and cleanly.",
+          geminiApiKey,
+        );
+      } catch (geminiErr) {
+        console.warn(
+          "Gemini OCR/extraction failed, using printable text fallback:",
+          (geminiErr as Error).message,
+        );
+        const buffer = await fileBlob.arrayBuffer();
+        textContent = extractPrintableText(buffer);
       }
-      const base64 = btoa(binaryString);
-
-      let mimeType = "application/pdf";
-      if (ext === "xlsx" || ext === "xls") {
-        mimeType =
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-      } else if (ext === "docx" || ext === "doc") {
-        mimeType =
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-      } else if (ext === "png") {
-        mimeType = "image/png";
-      } else if (ext === "jpg" || ext === "jpeg") {
-        mimeType = "image/jpeg";
-      } else if (ext === "webp") {
-        mimeType = "image/webp";
-      }
-
-      console.log(
-        `Sending file to Gemini flash for text extraction (${mimeType})...`,
-      );
-      const geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: "Extract all readable text, checklists, data columns, procedures, and tables from this document. Do not summarize; extract the complete content exactly and cleanly.",
-                  },
-                  {
-                    inlineData: {
-                      mimeType,
-                      data: base64,
-                    },
-                  },
-                ],
-              },
-            ],
-            generationConfig: { temperature: 0.1 },
-          }),
-        },
-      );
-
-      if (geminiResponse.ok) {
-        const geminiData = await geminiResponse.json();
-        textContent =
-          geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      } else {
-        const errText = await geminiResponse.text();
-        throw new Error(`Gemini text extraction failed: ${errText}`);
+      if (!textContent.trim()) {
+        textContent = `File metadata: ${doc.name}. Category: ${doc.category || "uncategorized"}. Asset: ${doc.asset || "unknown"}. Version: ${doc.version || "unknown"}.`;
       }
     }
 
