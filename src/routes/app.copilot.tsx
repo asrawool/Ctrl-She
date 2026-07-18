@@ -29,6 +29,10 @@ import {
   Filter,
   Pin,
   Bookmark,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Database,
 } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -40,6 +44,11 @@ export const Route = createFileRoute("/app/copilot")({
   head: () => ({ meta: [{ title: "AI Copilot — IntelliPlant AI" }] }),
   component: Copilot,
 });
+
+export interface ActionProposal {
+  type: "create_work_order" | "update_asset" | "close_ncr";
+  params: Record<string, string | number>;
+}
 
 type Msg = {
   id: string;
@@ -61,6 +70,10 @@ type Msg = {
     type?: string;
   }[];
   rating?: "up" | "down" | null;
+  proposedAction?: ActionProposal | null;
+  actionStatus?: string | null;
+  actionError?: string | null;
+  actionResult?: Record<string, unknown> | null;
 };
 
 type Conv = {
@@ -107,6 +120,10 @@ interface DbMessage {
   confidence?: number;
   attachments?: Msg["attachments"];
   message_feedback?: { rating: "up" | "down" | null }[];
+  proposed_action?: ActionProposal | null;
+  action_status?: string | null;
+  action_error?: string | null;
+  action_result?: Record<string, unknown> | null;
 }
 
 const SUGGESTIONS = [
@@ -313,6 +330,10 @@ function Copilot() {
           confidence: m.confidence,
           attachments: m.attachments,
           rating: m.message_feedback?.[0]?.rating || null,
+          proposedAction: m.proposed_action,
+          actionStatus: m.action_status,
+          actionError: m.action_error,
+          actionResult: m.action_result,
         }));
 
         const found = convs.find((c) => c.id === activeId);
@@ -825,6 +846,8 @@ function Copilot() {
           content: res.answer,
           sources: res.citations,
           confidence: res.confidence,
+          proposed_action: res.proposedAction || null,
+          action_status: res.proposedAction ? "pending" : null,
         })
         .select()
         .single();
@@ -851,6 +874,8 @@ function Copilot() {
               sources: aiMsg.sources,
               confidence: aiMsg.confidence,
               rating: null,
+              proposedAction: aiMsg.proposed_action,
+              actionStatus: aiMsg.action_status,
             },
           ],
         };
@@ -922,6 +947,180 @@ function Copilot() {
       const error = err as Error;
       console.error(error);
       toast.error("Failed to submit feedback: " + error.message);
+    }
+  };
+
+  const handleActionUpdate = async (
+    messageId: string,
+    status: "confirmed" | "cancelled" | "failed",
+    type?: string,
+    params?: ActionProposal["params"],
+  ) => {
+    if (status === "cancelled") {
+      try {
+        await supabase
+          .from("messages")
+          .update({ action_status: "cancelled" })
+          .eq("id", messageId);
+        setActiveConv((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            messages: prev.messages.map((m) =>
+              m.id === messageId ? { ...m, actionStatus: "cancelled" } : m,
+            ),
+          };
+        });
+        toast.info("Action cancelled by user.");
+      } catch (err) {
+        console.error(err);
+      }
+      return;
+    }
+
+    if (status === "confirmed" && type && params) {
+      const toastId = toast.loading("Executing proposed database action...");
+      try {
+        let dbRes: {
+          data: Record<string, unknown> | null;
+          error: { message: string; code?: string } | null;
+        };
+        if (type === "create_work_order") {
+          const notesStr = `[Created via AI Copilot] ${params.notes || "Initiated from Copilot chat request."}`;
+          dbRes = await supabase
+            .from("work_orders")
+            .insert({
+              asset_id: String(params.asset_id),
+              title: String(params.title),
+              type: String(params.type || "corrective"),
+              priority: String(params.priority || "Medium"),
+              due_date: params.due_date
+                ? String(params.due_date)
+                : new Date(Date.now() + 86400000 * 3)
+                    .toISOString()
+                    .slice(0, 10),
+              notes: notesStr,
+              status: "Pending",
+            })
+            .select()
+            .single();
+        } else if (type === "update_asset") {
+          dbRes = await supabase
+            .from("assets")
+            .update({
+              health_percentage: parseInt(String(params.health_percentage)),
+              status: String(params.status),
+              rul_days: parseInt(String(params.rul_days)),
+              is_ai_modified: true,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", String(params.asset_id))
+            .select()
+            .single();
+        } else if (type === "close_ncr") {
+          const resolvedNotes = `[Resolved via AI Copilot] ${params.resolution_notes || "Resolved from Copilot request."}`;
+          let targetId = params.ncr_id ? String(params.ncr_id) : "";
+
+          if (!targetId || targetId.length < 10) {
+            const { data: ncrRow } = await supabase
+              .from("ncrs")
+              .select("id")
+              .eq("ncr_number", String(params.ncr_number || params.ncr_id))
+              .maybeSingle();
+            if (ncrRow) {
+              targetId = ncrRow.id;
+            }
+          }
+
+          dbRes = await supabase
+            .from("ncrs")
+            .update({
+              status: "Closed",
+              resolved_at: new Date().toISOString(),
+              resolution_notes: resolvedNotes,
+            })
+            .eq("id", targetId || String(params.ncr_id))
+            .select()
+            .single();
+        } else {
+          throw new Error("Invalid action type proposed.");
+        }
+
+        if (dbRes.error) {
+          throw dbRes.error;
+        }
+
+        // Save successfully in DB
+        await supabase
+          .from("messages")
+          .update({
+            action_status: "confirmed",
+            action_result: dbRes.data,
+            action_error: null,
+          })
+          .eq("id", messageId);
+
+        setActiveConv((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            messages: prev.messages.map((m) =>
+              m.id === messageId
+                ? {
+                    ...m,
+                    actionStatus: "confirmed",
+                    actionResult: dbRes.data,
+                    actionError: null,
+                  }
+                : m,
+            ),
+          };
+        });
+
+        toast.success("Proposed database action executed successfully!", {
+          id: toastId,
+        });
+      } catch (err: unknown) {
+        console.error("Action execution error:", err);
+        const errorObject = err as { code?: string; message?: string };
+        const code = errorObject.code || "";
+        const msg = errorObject.message || "";
+        let friendlyError = msg;
+        if (
+          code === "42501" ||
+          msg.includes("permission denied") ||
+          msg.includes("row-level security")
+        ) {
+          friendlyError =
+            "Failed to execute: permission denied. Your user role does not have permission to perform this action.";
+        }
+
+        await supabase
+          .from("messages")
+          .update({
+            action_status: "failed",
+            action_error: friendlyError,
+          })
+          .eq("id", messageId);
+
+        setActiveConv((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            messages: prev.messages.map((m) =>
+              m.id === messageId
+                ? {
+                    ...m,
+                    actionStatus: "failed",
+                    actionError: friendlyError,
+                  }
+                : m,
+            ),
+          };
+        });
+
+        toast.error(friendlyError, { id: toastId });
+      }
     }
   };
 
@@ -1051,6 +1250,8 @@ function Copilot() {
           content: res.answer,
           sources: res.citations,
           confidence: res.confidence,
+          proposed_action: res.proposedAction || null,
+          action_status: res.proposedAction ? "pending" : null,
         })
         .select()
         .single();
@@ -1538,6 +1739,7 @@ function Copilot() {
                     onFeedback={(rating) => handleFeedback(m.id, rating)}
                     onSaveNote={(content) => handleSaveNote(content, activeId)}
                     onEditSave={(id, text) => handleEditMessageSave(id, text)}
+                    onActionUpdate={handleActionUpdate}
                   />
                 ))}
               </AnimatePresence>
@@ -1817,12 +2019,19 @@ function Bubble({
   onFeedback,
   onSaveNote,
   onEditSave,
+  onActionUpdate,
 }: {
   msg: Msg;
   onRegen: () => void;
   onFeedback: (rating: "up" | "down") => void;
   onSaveNote?: (content: string) => void;
   onEditSave?: (id: string, text: string) => void;
+  onActionUpdate?: (
+    messageId: string,
+    status: "confirmed" | "cancelled" | "failed",
+    type?: string,
+    params?: ActionProposal["params"],
+  ) => void;
 }) {
   const isUser = msg.role === "user";
   const [isEditing, setIsEditing] = useState(false);
@@ -1885,6 +2094,18 @@ function Bubble({
         ) : (
           <>
             <div className="whitespace-pre-line">{msg.text}</div>
+
+            {/* AI Action Proposal Card */}
+            {!isUser && msg.proposedAction && (
+              <ActionProposalCard
+                messageId={msg.id}
+                proposedAction={msg.proposedAction}
+                actionStatus={msg.actionStatus}
+                actionError={msg.actionError}
+                actionResult={msg.actionResult}
+                onActionUpdate={onActionUpdate}
+              />
+            )}
 
             {/* User message edit button */}
             {isUser && onEditSave && (
@@ -2032,5 +2253,188 @@ function IconBtn({
     >
       <I className="h-3 w-3" />
     </button>
+  );
+}
+
+function ActionProposalCard({
+  messageId,
+  proposedAction,
+  actionStatus,
+  actionError,
+  actionResult,
+  onActionUpdate,
+}: {
+  messageId: string;
+  proposedAction: ActionProposal | null;
+  actionStatus?: string | null;
+  actionError?: string | null;
+  actionResult?: Record<string, unknown> | null;
+  onActionUpdate?: (
+    messageId: string,
+    status: "confirmed" | "cancelled" | "failed",
+    type?: string,
+    params?: ActionProposal["params"],
+  ) => void;
+}) {
+  const type = proposedAction?.type;
+  const params = proposedAction?.params || {};
+
+  const getActionLabel = () => {
+    switch (type) {
+      case "create_work_order":
+        return "Create Work Order";
+      case "update_asset":
+        return "Update Asset Health";
+      case "close_ncr":
+        return "Close NCR";
+      default:
+        return "Unknown Action";
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-xl border border-accent/20 bg-accent/5 p-3.5 space-y-3 text-foreground">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-xs font-bold text-accent uppercase tracking-wider">
+          <Database className="h-3.5 w-3.5" />
+          <span>{getActionLabel()}</span>
+        </div>
+        <div>
+          {(!actionStatus || actionStatus === "pending") && (
+            <span className="text-[10px] bg-amber/15 text-amber border border-amber/20 px-1.5 py-0.5 rounded font-semibold">
+              Pending Confirmation
+            </span>
+          )}
+          {actionStatus === "confirmed" && (
+            <span className="text-[10px] bg-emerald/15 text-emerald border border-emerald/20 px-1.5 py-0.5 rounded font-semibold flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3" />
+              Executed
+            </span>
+          )}
+          {actionStatus === "cancelled" && (
+            <span className="text-[10px] bg-muted-foreground/15 text-muted-foreground border border-muted-foreground/20 px-1.5 py-0.5 rounded font-semibold">
+              Cancelled
+            </span>
+          )}
+          {actionStatus === "failed" && (
+            <span className="text-[10px] bg-red-500/15 text-red-500 border border-red-500/20 px-1.5 py-0.5 rounded font-semibold flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              Failed
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="text-xs space-y-1.5 bg-background/30 rounded-lg p-2.5 border border-border/10 font-mono">
+        {type === "create_work_order" && (
+          <>
+            <div>
+              <span className="text-muted-foreground">Asset:</span>{" "}
+              {params.asset_id}
+            </div>
+            <div>
+              <span className="text-muted-foreground">Title:</span>{" "}
+              {params.title}
+            </div>
+            <div>
+              <span className="text-muted-foreground">Type:</span> {params.type}
+            </div>
+            <div>
+              <span className="text-muted-foreground">Priority:</span>{" "}
+              {params.priority}
+            </div>
+            {params.due_date && (
+              <div>
+                <span className="text-muted-foreground">Due Date:</span>{" "}
+                {params.due_date}
+              </div>
+            )}
+          </>
+        )}
+        {type === "update_asset" && (
+          <>
+            <div>
+              <span className="text-muted-foreground">Asset:</span>{" "}
+              {params.asset_id}
+            </div>
+            <div>
+              <span className="text-muted-foreground">Health %:</span>{" "}
+              {params.health_percentage}%
+            </div>
+            <div>
+              <span className="text-muted-foreground">Status:</span>{" "}
+              {params.status}
+            </div>
+            <div>
+              <span className="text-muted-foreground">RUL Days:</span>{" "}
+              {params.rul_days}
+            </div>
+          </>
+        )}
+        {type === "close_ncr" && (
+          <>
+            {params.ncr_id && (
+              <div>
+                <span className="text-muted-foreground">NCR ID:</span>{" "}
+                {params.ncr_id}
+              </div>
+            )}
+            <div>
+              <span className="text-muted-foreground">NCR Number:</span>{" "}
+              {params.ncr_number || params.ncr_id}
+            </div>
+            <div>
+              <span className="text-muted-foreground">Notes:</span>{" "}
+              {params.resolution_notes}
+            </div>
+          </>
+        )}
+      </div>
+
+      {actionError && (
+        <div className="text-[11px] bg-red-500/10 text-red-500 border border-red-500/20 rounded-lg p-2 flex items-start gap-1.5">
+          <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span className="leading-normal">{actionError}</span>
+        </div>
+      )}
+
+      {actionResult && actionStatus === "confirmed" && (
+        <div className="text-[11px] bg-emerald/10 text-emerald border border-emerald/20 rounded-lg p-2 font-mono">
+          <div>Result Registered: Successfully wrote to database.</div>
+          <div>
+            Record ID:{" "}
+            {String(
+              (actionResult as Record<string, unknown>).id ||
+                params.asset_id ||
+                "Updated",
+            )}
+          </div>
+        </div>
+      )}
+
+      {(!actionStatus || actionStatus === "pending") && (
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full text-xs h-8 border-border hover:bg-muted/50"
+            onClick={() => onActionUpdate?.(messageId, "cancelled")}
+          >
+            <X className="h-3 w-3 mr-1" />
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="w-full text-xs h-8 bg-accent text-white hover:bg-accent/90"
+            onClick={() =>
+              onActionUpdate?.(messageId, "confirmed", type, params)
+            }
+          >
+            <CheckCircle2 className="h-3 w-3 mr-1" />
+            Confirm
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

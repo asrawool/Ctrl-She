@@ -77,6 +77,8 @@ function Page() {
     assigned_to: "",
     due_date: "",
     notes: "",
+    source_rca_id: "",
+    source_rca_action: "",
   });
 
   const [spForm, setSpForm] = useState({
@@ -173,6 +175,8 @@ function Page() {
           ? new Date(woForm.due_date).toISOString()
           : null,
         notes: woForm.notes || null,
+        source_rca_id: woForm.source_rca_id || null,
+        source_rca_action: woForm.source_rca_action || null,
       });
 
       if (error) throw error;
@@ -186,11 +190,32 @@ function Page() {
         assigned_to: "",
         due_date: "",
         notes: "",
+        source_rca_id: "",
+        source_rca_action: "",
       });
       fetchData();
     } catch (err: unknown) {
       toast.error("Failed to schedule work order: " + (err as Error).message);
     }
+  };
+
+  const handleConvertRcaToWo = (
+    rcaId: string,
+    assetId: string,
+    actionText: string,
+  ) => {
+    setWoForm({
+      asset_id: assetId || "P-401",
+      title: actionText.trim(),
+      type: "corrective",
+      priority: "Medium",
+      assigned_to: "",
+      due_date: new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 16),
+      notes: `Generated from RCA Report Reference ID: ${rcaId} corrective action.`,
+      source_rca_id: rcaId,
+      source_rca_action: actionText.trim(),
+    });
+    setShowWoModal(true);
   };
 
   const handleAdjustSp = async (e: React.FormEvent) => {
@@ -447,7 +472,11 @@ function Page() {
                     ? "warning"
                     : "emerald";
                 return (
-                  <div key={i} className="relative">
+                  <div
+                    key={e.id || i}
+                    id={`wo-${e.id}`}
+                    className="relative p-1 rounded-lg transition-all duration-300"
+                  >
                     <span
                       className={`absolute -left-6 top-1 grid h-4 w-4 place-items-center rounded-full ${
                         tone === "warning"
@@ -530,6 +559,11 @@ function Page() {
                   <RcaCol
                     title="Corrective Actions"
                     items={r.corrective_actions.split(",")}
+                    isCorrective={true}
+                    rcaId={r.id}
+                    assetId={r.asset_id}
+                    workOrders={workOrders}
+                    onConvert={handleConvertRcaToWo}
                   />
                 </div>
               </div>
@@ -1032,19 +1066,106 @@ function Page() {
   );
 }
 
-function RcaCol({ title, items }: { title: string; items: string[] }) {
+function RcaCol({
+  title,
+  items,
+  isCorrective,
+  rcaId,
+  assetId,
+  workOrders,
+  onConvert,
+}: {
+  title: string;
+  items: string[];
+  isCorrective?: boolean;
+  rcaId?: string;
+  assetId?: string;
+  workOrders?: WorkOrder[];
+  onConvert?: (rcaId: string, assetId: string, actionText: string) => void;
+}) {
   return (
     <div className="rounded-xl bg-muted/40 p-3">
       <div className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
         {title}
       </div>
-      <ul className="space-y-1.5 text-xs">
-        {items.map((i) => (
-          <li key={i} className="flex gap-2">
-            <Wrench className="h-3.5 w-3.5 mt-0.5 text-accent shrink-0" />
-            <span>{i.trim()}</span>
-          </li>
-        ))}
+      <ul className="space-y-2 text-xs">
+        {items.map((item, idx) => {
+          const trimmed = item.trim();
+          if (!trimmed) return null;
+
+          const linkedWo =
+            isCorrective && workOrders && rcaId
+              ? workOrders.find(
+                  (w) =>
+                    w.source_rca_id === rcaId &&
+                    w.source_rca_action?.trim() === trimmed,
+                )
+              : null;
+
+          return (
+            <li
+              key={idx}
+              className="flex flex-col gap-1 border-b border-border/20 last:border-0 pb-1.5 last:pb-0"
+            >
+              <div className="flex gap-2 items-start">
+                <Wrench className="h-3.5 w-3.5 mt-0.5 text-accent shrink-0" />
+                <span className="flex-1">{trimmed}</span>
+              </div>
+              {isCorrective && (
+                <div className="pl-5.5 mt-0.5">
+                  {linkedWo ? (
+                    <a
+                      href={`#wo-${linkedWo.id}`}
+                      className="inline-flex items-center gap-1 text-[9px] bg-emerald/10 hover:bg-emerald/20 text-emerald border border-emerald/20 px-1.5 py-0.5 rounded-md font-semibold whitespace-nowrap transition cursor-pointer"
+                      onClick={(ev) => {
+                        ev.preventDefault();
+                        const el = document.getElementById(`wo-${linkedWo.id}`);
+                        if (el) {
+                          el.scrollIntoView({
+                            behavior: "smooth",
+                            block: "center",
+                          });
+                          el.classList.add(
+                            "ring-2",
+                            "ring-emerald",
+                            "bg-emerald/5",
+                          );
+                          setTimeout(() => {
+                            el.classList.remove(
+                              "ring-2",
+                              "ring-emerald",
+                              "bg-emerald/5",
+                            );
+                          }, 2000);
+                        } else {
+                          toast.info(
+                            `Work Order: "${linkedWo.title}" (${linkedWo.status})`,
+                          );
+                        }
+                      }}
+                    >
+                      <CheckCircle2 className="h-2.5 w-2.5" />
+                      Work Order created
+                    </a>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="link"
+                      className="h-auto p-0 text-[10px] text-accent font-medium hover:underline flex items-center gap-1"
+                      onClick={() =>
+                        onConvert?.(rcaId || "", assetId || "", trimmed)
+                      }
+                    >
+                      <Plus className="h-3 w-3" />
+                      Convert to Work Order
+                    </Button>
+                  )}
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

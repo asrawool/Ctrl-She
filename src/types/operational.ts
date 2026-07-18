@@ -9,6 +9,7 @@ export interface Asset {
   last_inspected_at?: string;
   updated_by?: string;
   updated_at?: string;
+  is_ai_modified?: boolean;
 }
 
 export interface WorkOrder {
@@ -23,6 +24,8 @@ export interface WorkOrder {
   due_date?: string;
   completed_at?: string;
   notes?: string;
+  source_rca_id?: string;
+  source_rca_action?: string;
 }
 
 export interface SparePart {

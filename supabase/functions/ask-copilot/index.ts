@@ -205,6 +205,41 @@ You have access to the official plant documentation, manuals, SOPs, and incident
 Use the provided live database state and document context to answer the user's question with high accuracy, detail, and technical precision.
 Always prefer real data from the database if they ask about current asset health, inventory count, open work orders, certifications, or insurance policies. If they ask about procedures, safety manuals, or past incidents, rely on the document chunks.
 
+=== AGENTIC ACTION CAPABILITY ===
+You can propose exactly these three specific database write actions and nothing else:
+1. Create a work order: Parameters are "asset_id" (string, e.g. "P-401"), "title" (string, description of work), "type" (string: "preventive", "corrective", "predictive", or "emergency"), "priority" (string: "Low", "Medium", "High", or "Critical"), and optionally "due_date" (ISO format string).
+2. Update an asset's health: Parameters are "asset_id" (string), "health_percentage" (integer: 0 to 100), "status" (string: "healthy", "warning", or "critical"), and "rul_days" (integer, Remaining Useful Life in days).
+3. Close/resolve an NCR: Parameters are "ncr_id" (UUID/text, the primary ID of the NCR, or if unknown, match by ncr_number), "ncr_number" (string, e.g. "NCR-2024-042"), and "resolution_notes" (string, description of action).
+
+If the user asks you to take one of these actions (e.g. "log a work order for P-401 lubrication", "set P-401 health to 90%", or "close NCR-2024-042 calibration redone"), you MUST respond with a single JSON block conforming exactly to this structure:
+{
+  "proposedAction": {
+    "type": "create_work_order" | "update_asset" | "close_ncr",
+    "params": {
+      // for create_work_order:
+      "asset_id": "P-401",
+      "title": "Lubricate pump bearings",
+      "type": "preventive",
+      "priority": "Medium",
+      "due_date": "2026-07-21"
+      
+      // for update_asset:
+      "asset_id": "P-401",
+      "health_percentage": 90,
+      "status": "healthy",
+      "rul_days": 120
+      
+      // for close_ncr:
+      "ncr_id": "...", // if known
+      "ncr_number": "NCR-2024-042",
+      "resolution_notes": "Calibration redone and verified."
+    }
+  },
+  "message": "A clear, user-friendly explanation of the action you have prepared for their confirmation."
+}
+
+Do not perform any other database writes or arbitrary SQL execution. If the user request is a normal question, answer it in plain text as usual.
+
 Follow these constraints strictly:
 1. Cite specific document titles (e.g. "DocScanner 3-2-24.pdf") and sections when presenting diagnostics or recommendations from documents.
 2. Refer to specific equipment IDs (e.g. Pump P-401, Boiler B-12), priority levels, status, compliance scores, and stock levels when discussing operational data.
@@ -388,6 +423,34 @@ ${systemPrompt}`;
       throw new Error("No configured LLM API keys found.");
     }
 
+    let proposedAction = null;
+    let cleanAnswer = answer;
+
+    // Check if the response contains a JSON block
+    const jsonMatch =
+      answer.match(/```json\s*([\s\S]*?)\s*```/) ||
+      answer.match(/^\s*({[\s\S]*?})\s*$/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[1].trim());
+        if (parsed.proposedAction && parsed.proposedAction.type) {
+          const allowedTypes = [
+            "create_work_order",
+            "update_asset",
+            "close_ncr",
+          ];
+          if (allowedTypes.includes(parsed.proposedAction.type)) {
+            proposedAction = parsed.proposedAction;
+            cleanAnswer =
+              parsed.message ||
+              "I have prepared the action for your confirmation.";
+          }
+        }
+      } catch (e) {
+        console.error("Failed to parse proposed action JSON:", e);
+      }
+    }
+
     // 7. Format sources to return to client
     const sources = chunks.map((c) => {
       const doc = docs.find((d) => d.id === c.document_id);
@@ -400,7 +463,13 @@ ${systemPrompt}`;
     });
 
     return new Response(
-      JSON.stringify({ answer, sources, debugLogs, providerUsed }),
+      JSON.stringify({
+        answer: cleanAnswer,
+        proposedAction,
+        sources,
+        debugLogs,
+        providerUsed,
+      }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       },

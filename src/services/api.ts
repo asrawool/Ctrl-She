@@ -81,6 +81,7 @@ export const aiService = {
             0,
           ) / data.sources.length
         : 0,
+      proposedAction: data.proposedAction,
     };
   },
 };

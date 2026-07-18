@@ -195,7 +195,20 @@ const ICONS: Record<string, typeof FileText> = {
 
 function getFileType(fileName: string): string {
   const ext = fileName.split(".").pop()?.toLowerCase() || "file";
-  if (["pdf", "doc", "docx", "xls", "xlsx", "csv", "png", "jpg", "jpeg", "webp"].includes(ext)) {
+  if (
+    [
+      "pdf",
+      "doc",
+      "docx",
+      "xls",
+      "xlsx",
+      "csv",
+      "png",
+      "jpg",
+      "jpeg",
+      "webp",
+    ].includes(ext)
+  ) {
     return ext;
   }
   return ext;
@@ -654,7 +667,8 @@ function Documents() {
           <span className="text-accent underline">browse</span>
         </p>
         <p className="text-xs text-muted-foreground mt-1">
-          Any file type · OCR/extraction attempted where possible · up to 50MB (Free Tier Limit)
+          Any file type · OCR/extraction attempted where possible · up to 50MB
+          (Free Tier Limit)
         </p>
 
         {uploads.length > 0 && (
@@ -1110,7 +1124,8 @@ function Documents() {
               Ingest Document Metadata
             </h3>
             <p className="text-xs text-muted-foreground text-center">
-              Configure parameters before starting OCR/extraction and RAG chunk indexing.
+              Configure parameters before starting OCR/extraction and RAG chunk
+              indexing.
             </p>
             <div className="space-y-3 text-xs">
               <div>

@@ -47,7 +47,9 @@ export const getNotificationSettingsFn = createServerFn({ method: "POST" })
 
     const { data, error } = await supabase
       .from("workspace_settings")
-      .select("notify_email, notify_inapp, notify_mobile_push, notify_sms_critical")
+      .select(
+        "notify_email, notify_inapp, notify_mobile_push, notify_sms_critical",
+      )
       .eq("id", SETTINGS_ROW_ID)
       .maybeSingle();
 
