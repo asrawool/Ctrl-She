@@ -5,36 +5,26 @@ import { supabase } from "@/lib/supabase";
 export type Role =
   | "maintenance_engineer"
   | "plant_ops"
-  | "production_engineer"
   | "reliability_engineer"
   | "quality_engineer"
-  | "qa_manager"
   | "safety_officer"
-  | "hse_engineer"
   | "plant_manager"
-  | "maintenance_manager"
   | "document_controller"
   | "digital_transformation"
-  | "industry_40"
   | "other";
 
 export const ROLES: { id: Role; label: string }[] = [
   { id: "maintenance_engineer", label: "Maintenance Engineer" },
   { id: "plant_ops", label: "Plant Operations Engineer" },
-  { id: "production_engineer", label: "Production Engineer" },
   { id: "reliability_engineer", label: "Reliability Engineer" },
   { id: "quality_engineer", label: "Quality Engineer" },
-  { id: "qa_manager", label: "QA Manager" },
   { id: "safety_officer", label: "Safety Officer" },
-  { id: "hse_engineer", label: "HSE Engineer" },
   { id: "plant_manager", label: "Plant Manager" },
-  { id: "maintenance_manager", label: "Maintenance Manager" },
   { id: "document_controller", label: "Document Controller" },
   {
     id: "digital_transformation",
     label: "Industrial Digital Transformation Engineer",
   },
-  { id: "industry_40", label: "Industry 4.0 Engineer" },
   { id: "other", label: "Other" },
 ];
 

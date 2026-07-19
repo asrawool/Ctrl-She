@@ -29,6 +29,14 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Asset, WorkOrder, SparePart, RCAReport } from "@/types/operational";
+import { useAuth } from "@/store/auth";
+import { hasPermission, getActionRequiredRolesLabel } from "@/services/rbac";
+import {
+  useAssets,
+  usePartsStock,
+  computeHealthStatus,
+} from "@/hooks/useMaintenanceData";
+import { Combobox } from "@/components/ui/combobox";
 
 export const Route = createFileRoute("/app/maintenance")({
   head: () => ({
@@ -48,9 +56,15 @@ const vibration = [
 ];
 
 function Page() {
-  const [assets, setAssets] = useState<Asset[]>([]);
+  const { role } = useAuth();
+  const canUpdateAsset = hasPermission(role, "update:assets");
+  const canLogWo = hasPermission(role, "create:work_orders");
+  const canAdjustSpares = hasPermission(role, "create:spare_parts");
+  const canCreateRca = hasPermission(role, "create:rca_reports");
+
+  const { assets } = useAssets();
+  const { parts: spareParts } = usePartsStock();
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
-  const [spareParts, setSpareParts] = useState<SparePart[]>([]);
   const [rcaReports, setRcaReports] = useState<RCAReport[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -62,14 +76,14 @@ function Page() {
 
   // Form states
   const [assetForm, setAssetForm] = useState({
-    id: "P-401",
+    id: "",
     health_percentage: 80,
     status: "warning",
     rul_days: 100,
   });
 
   const [woForm, setWoForm] = useState({
-    asset_id: "P-401",
+    asset_id: "",
     title: "",
     type: "preventive" as
       "preventive" | "corrective" | "predictive" | "emergency",
@@ -82,7 +96,7 @@ function Page() {
   });
 
   const [spForm, setSpForm] = useState({
-    id: "SP-001",
+    id: "",
     name: "",
     current_quantity: 5,
     min_quantity: 10,
@@ -91,41 +105,45 @@ function Page() {
 
   const [rcaForm, setRcaForm] = useState({
     incident_ref: "",
-    asset_id: "P-401",
+    asset_id: "",
     symptoms: "",
     root_cause: "",
     corrective_actions: "",
   });
 
+
+
+  // Keep form fields synced with loaded real-time spare parts
+  useEffect(() => {
+    if (spareParts.length > 0) {
+      if (!spForm.id) {
+        const firstPart = spareParts[0];
+        setSpForm((s) => ({
+          ...s,
+          id: firstPart.id,
+          name: firstPart.name,
+          current_quantity: firstPart.current_quantity,
+          min_quantity: firstPart.min_quantity,
+        }));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spareParts]);
+
   const fetchData = async () => {
     try {
-      const [
-        { data: astData },
-        { data: woData },
-        { data: spData },
-        { data: rcaData },
-      ] = await Promise.all([
-        supabase
-          .from("assets")
-          .select("*")
-          .order("health_percentage", { ascending: true }),
+      const [{ data: woData }, { data: rcaData }] = await Promise.all([
         supabase
           .from("work_orders")
           .select("*")
           .order("due_date", { ascending: true }),
-        supabase
-          .from("spare_parts")
-          .select("*")
-          .order("name", { ascending: true }),
         supabase
           .from("rca_reports")
           .select("*")
           .order("created_at", { ascending: false }),
       ]);
 
-      setAssets(astData || []);
       setWorkOrders(woData || []);
-      setSpareParts(spData || []);
       setRcaReports(rcaData || []);
     } catch (e) {
       console.error(e);
@@ -141,19 +159,31 @@ function Page() {
 
   const handleUpdateAsset = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!assetForm.id) {
+      toast.error("Please select an asset first.");
+      return;
+    }
     try {
+      const derivedHealth = computeHealthStatus(
+        Number(assetForm.health_percentage),
+        Number(assetForm.rul_days),
+      );
+
       const { error } = await supabase
         .from("assets")
         .update({
           health_percentage: Number(assetForm.health_percentage),
-          status: assetForm.status,
+          health_status: derivedHealth,
           rul_days: Number(assetForm.rul_days),
           updated_at: new Date().toISOString(),
         })
         .eq("id", assetForm.id);
 
       if (error) throw error;
-      toast.success(`Asset ${assetForm.id} updated successfully`);
+      const selectedAsset = assets.find((a) => a.id === assetForm.id);
+      toast.success(
+        `Asset ${selectedAsset?.asset_code || assetForm.id} updated successfully`,
+      );
       setShowAssetModal(false);
       fetchData();
     } catch (err: unknown) {
@@ -163,6 +193,10 @@ function Page() {
 
   const handleCreateWo = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!woForm.asset_id) {
+      toast.error("Please select a target asset first.");
+      return;
+    }
     try {
       const { error } = await supabase.from("work_orders").insert({
         asset_id: woForm.asset_id,
@@ -183,7 +217,7 @@ function Page() {
       toast.success("Work Order scheduled successfully");
       setShowWoModal(false);
       setWoForm({
-        asset_id: "P-401",
+        asset_id: "",
         title: "",
         type: "preventive",
         priority: "Medium",
@@ -205,7 +239,7 @@ function Page() {
     actionText: string,
   ) => {
     setWoForm({
-      asset_id: assetId || "P-401",
+      asset_id: assetId || assets[0]?.id || "",
       title: actionText.trim(),
       type: "corrective",
       priority: "Medium",
@@ -220,6 +254,10 @@ function Page() {
 
   const handleAdjustSp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!spForm.isCustom && !spForm.id) {
+      toast.error("Please select a spare part first.");
+      return;
+    }
     try {
       if (spForm.isCustom) {
         if (!spForm.name.trim()) {
@@ -228,16 +266,23 @@ function Page() {
         }
         const { error } = await supabase.from("spare_parts").insert({
           name: spForm.name,
-          current_quantity: Number(spForm.current_quantity),
-          min_quantity: Number(spForm.min_quantity),
+          part_code: `SP-${Date.now().toString().slice(-4)}`,
+          category: "Parts",
+          manufacturer: "Generic",
+          model: "Generic",
+          location: "Warehouse A",
+          current_qty: Number(spForm.current_quantity),
+          min_qty: Number(spForm.min_quantity),
+          supplier: "Generic",
+          status: "Operational",
         });
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from("spare_parts")
           .update({
-            current_quantity: Number(spForm.current_quantity),
-            min_quantity: Number(spForm.min_quantity),
+            current_qty: Number(spForm.current_quantity),
+            min_qty: Number(spForm.min_quantity),
             updated_at: new Date().toISOString(),
           })
           .eq("id", spForm.id);
@@ -254,25 +299,158 @@ function Page() {
 
   const handleCreateRca = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!rcaForm.asset_id) {
+      toast.error("Please select an affected asset first.");
+      return;
+    }
     try {
-      const { error } = await supabase.from("rca_reports").insert({
-        incident_ref: rcaForm.incident_ref,
-        asset_id: rcaForm.asset_id,
-        symptoms: rcaForm.symptoms,
-        root_cause: rcaForm.root_cause,
-        corrective_actions: rcaForm.corrective_actions,
-      });
+      // 1. Insert the RCA report and select the inserted row
+      const { data: insertedRca, error } = await supabase
+        .from("rca_reports")
+        .insert({
+          incident_ref: rcaForm.incident_ref,
+          asset_id: rcaForm.asset_id,
+          symptoms: rcaForm.symptoms,
+          root_cause: rcaForm.root_cause,
+          corrective_actions: rcaForm.corrective_actions,
+        })
+        .select()
+        .single();
 
       if (error) throw error;
+
       toast.success("RCA Report logged successfully");
       setShowRcaModal(false);
       setRcaForm({
         incident_ref: "",
-        asset_id: "P-401",
+        asset_id: assets[0]?.id || "",
         symptoms: "",
         root_cause: "",
         corrective_actions: "",
       });
+
+      // 2. Asynchronously upload to storage and trigger process-document
+      if (insertedRca) {
+        const rcaText = `RCA Report Reference: ${insertedRca.incident_ref}
+Asset: ${insertedRca.asset_id}
+Symptoms: ${insertedRca.symptoms}
+Root Cause: ${insertedRca.root_cause}
+Corrective Actions: ${insertedRca.corrective_actions}`;
+
+        const blob = new Blob([rcaText], { type: "text/plain" });
+        const file = new File([blob], `${insertedRca.incident_ref}.txt`, {
+          type: "text/plain",
+        });
+        const filePath = `rca/${insertedRca.id}.txt`;
+
+        // Upload to storage bucket
+        const { error: uploadError } = await supabase.storage
+          .from("copilot-attachments")
+          .upload(filePath, file, { cacheControl: "3600", upsert: true });
+
+        if (uploadError) {
+          console.error("Storage upload failed for RCA:", uploadError.message);
+        } else {
+          // Register document metadata
+          const docId = insertedRca.id;
+          const { error: docError } = await supabase.from("documents").insert({
+            id: docId,
+            name: `RCA: ${insertedRca.incident_ref}`,
+            category: "Incident & Root Cause Reports",
+            asset: insertedRca.asset_id,
+            version: "v1.0",
+            size: blob.size,
+            source: "rca_reports",
+            storage_path: filePath,
+            status: "pending",
+          });
+
+          if (docError) {
+            console.error(
+              "Document metadata insertion failed:",
+              docError.message,
+            );
+          } else {
+            // Trigger background processing (chunking & embeddings)
+            supabase.functions
+              .invoke("process-document", {
+                body: { documentId: docId },
+              })
+              .catch((err) => {
+                console.error(
+                  "Failed to invoke process-document function:",
+                  err,
+                );
+              });
+          }
+        }
+
+        // 3. Scan for recurring failure patterns (Step 4 & 5)
+        const newCauses = insertedRca.root_cause
+          .split(",")
+          .map((c: string) => c.trim().toLowerCase())
+          .filter(Boolean);
+
+        const { data: allRcas } = await supabase
+          .from("rca_reports")
+          .select("asset_id, root_cause");
+
+        if (allRcas) {
+          for (const cause of newCauses) {
+            // Find other assets that had RCAs with this exact cause (case-insensitive)
+            const matchingAssets = new Set<string>();
+            matchingAssets.add(insertedRca.asset_id);
+
+            for (const r of allRcas) {
+              const otherCauses = r.root_cause
+                .split(",")
+                .map((c: string) => c.trim().toLowerCase())
+                .filter(Boolean);
+
+              if (otherCauses.includes(cause)) {
+                matchingAssets.add(r.asset_id);
+              }
+            }
+
+            // If a match is found across 2+ distinct assets, register/update pattern
+            if (matchingAssets.size >= 2) {
+              const assetList = Array.from(matchingAssets);
+              const title = `Systemic pattern: Recurring ${cause}`;
+              const desc = `Similar root cause "${cause}" identified across ${assetList.length} assets (${assetList.join(", ")}) in recent incident reports.`;
+
+              // Check if pattern already exists
+              const { data: existing } = await supabase
+                .from("failure_patterns")
+                .select("*")
+                .eq("matching_root_cause", cause)
+                .maybeSingle();
+
+              if (!existing) {
+                await supabase.from("failure_patterns").insert({
+                  title,
+                  description: desc,
+                  matching_root_cause: cause,
+                  affected_assets: assetList,
+                });
+              } else {
+                const combinedAssets = [
+                  ...new Set([...existing.affected_assets, ...assetList]),
+                ];
+                const updatedDesc = `Similar root cause "${cause}" identified across ${combinedAssets.length} assets (${combinedAssets.join(", ")}) in recent incident reports.`;
+
+                await supabase
+                  .from("failure_patterns")
+                  .update({
+                    affected_assets: combinedAssets,
+                    description: updatedDesc,
+                  })
+                  .eq("id", existing.id);
+              }
+            }
+          }
+        }
+      }
+
       fetchData();
     } catch (err: unknown) {
       toast.error("Failed to log RCA: " + (err as Error).message);
@@ -286,12 +464,12 @@ function Page() {
     for (const a of lowHealth) {
       if (a.health_percentage < 70) {
         recs.push({
-          t: `Order critical spare parts for ${a.id} (${a.name}) immediately`,
+          t: `Order critical spare parts for ${a.asset_code || a.id} (${a.name}) immediately`,
           conf: "95%",
         });
       } else {
         recs.push({
-          t: `Schedule vibration analysis / filtration for ${a.id} filters`,
+          t: `Schedule vibration analysis / filtration for ${a.asset_code || a.id} filters`,
           conf: "86%",
         });
       }
@@ -329,16 +507,37 @@ function Page() {
               variant="outline"
               size="sm"
               onClick={() => setShowAssetModal(true)}
+              disabled={!canUpdateAsset}
+              title={
+                !canUpdateAsset
+                  ? `Requires ${getActionRequiredRolesLabel("update:assets")} role`
+                  : undefined
+              }
             >
               <Edit className="mr-1.5 h-3.5 w-3.5" /> Update Asset
             </Button>
-            <Button size="sm" onClick={() => setShowWoModal(true)}>
+            <Button
+              size="sm"
+              onClick={() => setShowWoModal(true)}
+              disabled={!canLogWo}
+              title={
+                !canLogWo
+                  ? `Requires ${getActionRequiredRolesLabel("create:work_orders")} role`
+                  : undefined
+              }
+            >
               <Plus className="mr-1.5 h-3.5 w-3.5" /> Log Work Order
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowSpModal(true)}
+              disabled={!canAdjustSpares}
+              title={
+                !canAdjustSpares
+                  ? `Requires ${getActionRequiredRolesLabel("create:spare_parts")} role`
+                  : undefined
+              }
             >
               <Package className="mr-1.5 h-3.5 w-3.5" /> Adjust Spares
             </Button>
@@ -346,6 +545,12 @@ function Page() {
               size="sm"
               className="btn-hero"
               onClick={() => setShowRcaModal(true)}
+              disabled={!canCreateRca}
+              title={
+                !canCreateRca
+                  ? `Requires ${getActionRequiredRolesLabel("create:rca_reports")} role`
+                  : undefined
+              }
             >
               <AlertTriangle className="mr-1.5 h-3.5 w-3.5" /> Create RCA
             </Button>
@@ -363,7 +568,7 @@ function Page() {
             <div className="flex items-start justify-between">
               <div>
                 <div className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">
-                  {e.id}
+                  {e.asset_code || e.id}
                 </div>
                 <div className="font-display font-bold">{e.name}</div>
               </div>
@@ -488,7 +693,9 @@ function Page() {
                       {dayStr} ({e.status})
                     </div>
                     <div className="text-sm font-medium">
-                      {e.type.toUpperCase()}: {e.title} for {e.asset_id}
+                      {e.type.toUpperCase()}: {e.title} for{" "}
+                      {assets.find((a) => a.id === e.asset_id)?.asset_code ||
+                        e.asset_id}
                     </div>
                     {e.assigned_to && (
                       <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -551,7 +758,9 @@ function Page() {
                 className="border border-border p-4 rounded-xl space-y-3"
               >
                 <div className="text-xs font-semibold text-muted-foreground">
-                  REPORT REF: {r.incident_ref} | ASSET: {r.asset_id}
+                  REPORT REF: {r.incident_ref} | ASSET:{" "}
+                  {assets.find((a) => a.id === r.asset_id)?.asset_code ||
+                    r.asset_id}
                 </div>
                 <div className="grid gap-4 md:grid-cols-3 text-sm">
                   <RcaCol title="Symptom" items={r.symptoms.split(",")} />
@@ -594,19 +803,27 @@ function Page() {
                 <label className="block text-muted-foreground mb-1">
                   Select Asset
                 </label>
-                <select
+                <Combobox
+                  options={assets.map((a) => ({
+                    value: a.id,
+                    label: `${a.asset_code} — ${a.name}`,
+                    searchString: `${a.asset_code} ${a.name}`,
+                  }))}
                   value={assetForm.id}
-                  onChange={(e) =>
-                    setAssetForm({ ...assetForm, id: e.target.value })
-                  }
-                  className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                >
-                  {assets.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.id} — {a.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => {
+                    const selected = assets.find((a) => a.id === val);
+                    if (selected) {
+                      setAssetForm({
+                        id: selected.id,
+                        health_percentage: selected.health_percentage,
+                        status: selected.status,
+                        rul_days: selected.rul_days,
+                      });
+                    }
+                  }}
+                  emptyText="No assets yet — add one first"
+                  placeholder="Select Asset..."
+                />
               </div>
               <div>
                 <label className="block text-muted-foreground mb-1">
@@ -628,19 +845,29 @@ function Page() {
               </div>
               <div>
                 <label className="block text-muted-foreground mb-1">
-                  Status
+                  Status (Computed)
                 </label>
-                <select
-                  value={assetForm.status}
-                  onChange={(e) =>
-                    setAssetForm({ ...assetForm, status: e.target.value })
-                  }
-                  className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                >
-                  <option value="healthy">Healthy</option>
-                  <option value="warning">Warning</option>
-                  <option value="critical">Critical</option>
-                </select>
+                <div className="flex h-8 items-center">
+                  {(() => {
+                    const derived = computeHealthStatus(
+                      Number(assetForm.health_percentage),
+                      Number(assetForm.rul_days),
+                    );
+                    return (
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider ${
+                          derived === "critical"
+                            ? "bg-destructive/10 text-destructive border-destructive/20"
+                            : derived === "warning"
+                              ? "bg-orange-500/10 text-orange-500 border-orange-500/20"
+                              : "bg-emerald/10 text-emerald border-emerald/20"
+                        }`}
+                      >
+                        {derived}
+                      </span>
+                    );
+                  })()}
+                </div>
               </div>
               <div>
                 <label className="block text-muted-foreground mb-1">
@@ -698,19 +925,17 @@ function Page() {
                 <label className="block text-muted-foreground mb-1">
                   Target Asset
                 </label>
-                <select
+                <Combobox
+                  options={assets.map((a) => ({
+                    value: a.id,
+                    label: `${a.asset_code} — ${a.name}`,
+                    searchString: `${a.asset_code} ${a.name}`,
+                  }))}
                   value={woForm.asset_id}
-                  onChange={(e) =>
-                    setWoForm({ ...woForm, asset_id: e.target.value })
-                  }
-                  className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                >
-                  {assets.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.id} — {a.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setWoForm({ ...woForm, asset_id: val })}
+                  emptyText="No assets yet — add one first"
+                  placeholder="Select Target Asset..."
+                />
               </div>
               <div>
                 <label className="block text-muted-foreground mb-1">
@@ -875,27 +1100,25 @@ function Page() {
                   <label className="block text-muted-foreground mb-1">
                     Select Part
                   </label>
-                  <select
+                  <Combobox
+                    options={spareParts.map((s) => ({
+                      value: s.id,
+                      label: `${s.part_code} — ${s.name}`,
+                      searchString: `${s.part_code} ${s.name}`,
+                    }))}
                     value={spForm.id}
-                    onChange={(e) => {
-                      const selectedPart = spareParts.find(
-                        (p) => p.id === e.target.value,
-                      );
+                    onChange={(val) => {
+                      const selectedPart = spareParts.find((p) => p.id === val);
                       setSpForm({
                         ...spForm,
-                        id: e.target.value,
+                        id: val,
+                        name: selectedPart?.name || "",
                         current_quantity: selectedPart?.current_quantity || 0,
                         min_quantity: selectedPart?.min_quantity || 0,
                       });
                     }}
-                    className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                  >
-                    {spareParts.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Select Spare Part..."
+                  />
                 </div>
               )}
               <div>
@@ -986,19 +1209,17 @@ function Page() {
                 <label className="block text-muted-foreground mb-1">
                   Asset Affected
                 </label>
-                <select
+                <Combobox
+                  options={assets.map((a) => ({
+                    value: a.id,
+                    label: `${a.asset_code} — ${a.name}`,
+                    searchString: `${a.asset_code} ${a.name}`,
+                  }))}
                   value={rcaForm.asset_id}
-                  onChange={(e) =>
-                    setRcaForm({ ...rcaForm, asset_id: e.target.value })
-                  }
-                  className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                >
-                  {assets.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.id} — {a.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setRcaForm({ ...rcaForm, asset_id: val })}
+                  emptyText="No assets yet — add one first"
+                  placeholder="Select Asset..."
+                />
               </div>
               <div>
                 <label className="block text-muted-foreground mb-1">

@@ -30,6 +30,7 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  const debugLogs: string[] = [];
   try {
     const { question, attachments, history, forceFallback } = await req.json();
     if (!question) {
@@ -260,7 +261,6 @@ ${liveStateContext}`;
     );
     const hasImages = imageAttachments.length > 0;
 
-    const debugLogs: string[] = [];
     debugLogs.push(`hasImages: ${hasImages}`);
     debugLogs.push(`imageAttachments length: ${imageAttachments.length}`);
 
@@ -365,28 +365,63 @@ ${systemPrompt}`;
         debugLogs.push(`OpenRouter failed: ${error.message}`);
         if (geminiApiKey) {
           debugLogs.push("Routing request to Gemini (fallback)...");
-          answer = await callGemini(
-            geminiApiKey,
-            history,
-            question,
-            imageAttachments,
-            hasImages,
-            systemPrompt,
-          );
-          providerUsed = "Gemini (Fallback)";
+          try {
+            answer = await callGemini(
+              geminiApiKey,
+              history,
+              question,
+              imageAttachments,
+              hasImages,
+              systemPrompt,
+            );
+            providerUsed = "Gemini (Fallback)";
+          } catch (geminiErr) {
+            const gError = geminiErr as Error;
+            debugLogs.push(`Gemini fallback failed: ${gError.message}`);
+            if (groqApiKey) {
+              debugLogs.push("Routing request to Groq (fallback)...");
+              try {
+                answer = await callGroq(
+                  groqApiKey,
+                  history,
+                  question,
+                  imageAttachments,
+                  hasImages,
+                  systemPrompt,
+                );
+                providerUsed = "Groq (Fallback)";
+              } catch (groqErr) {
+                const grError = groqErr as Error;
+                debugLogs.push(`Groq fallback failed: ${grError.message}`);
+                answer = `The AI Copilot is temporarily rate-limited or unavailable. (Details: OpenRouter: ${error.message}, Gemini: ${gError.message}, Groq: ${grError.message})`;
+                providerUsed = "None (Error Fallback)";
+              }
+            } else {
+              answer = `The AI Copilot is temporarily rate-limited or unavailable. (Details: OpenRouter: ${error.message}, Gemini: ${gError.message})`;
+              providerUsed = "None (Error Fallback)";
+            }
+          }
         } else if (groqApiKey) {
           debugLogs.push("Routing request to Groq (fallback)...");
-          answer = await callGroq(
-            groqApiKey,
-            history,
-            question,
-            imageAttachments,
-            hasImages,
-            systemPrompt,
-          );
-          providerUsed = "Groq (Fallback)";
+          try {
+            answer = await callGroq(
+              groqApiKey,
+              history,
+              question,
+              imageAttachments,
+              hasImages,
+              systemPrompt,
+            );
+            providerUsed = "Groq (Fallback)";
+          } catch (groqErr) {
+            const grError = groqErr as Error;
+            debugLogs.push(`Groq fallback failed: ${grError.message}`);
+            answer = `The AI Copilot is temporarily rate-limited or unavailable. (Details: OpenRouter: ${error.message}, Groq: ${grError.message})`;
+            providerUsed = "None (Error Fallback)";
+          }
         } else {
-          throw err;
+          answer = `The AI Copilot is temporarily rate-limited or unavailable. (Details: OpenRouter: ${error.message})`;
+          providerUsed = "None (Error Fallback)";
         }
       }
     } else if (geminiApiKey) {
@@ -395,30 +430,44 @@ ${systemPrompt}`;
           ? "Forced fallback routing to Gemini..."
           : "Routing request to Gemini (direct)...",
       );
-      answer = await callGemini(
-        geminiApiKey,
-        history,
-        question,
-        imageAttachments,
-        hasImages,
-        systemPrompt,
-      );
-      providerUsed = "Gemini";
+      try {
+        answer = await callGemini(
+          geminiApiKey,
+          history,
+          question,
+          imageAttachments,
+          hasImages,
+          systemPrompt,
+        );
+        providerUsed = "Gemini";
+      } catch (geminiErr) {
+        const gError = geminiErr as Error;
+        debugLogs.push(`Gemini direct failed: ${gError.message}`);
+        answer = `The Gemini API is temporarily unavailable. (Detail: ${gError.message})`;
+        providerUsed = "None (Error Fallback)";
+      }
     } else if (groqApiKey) {
       debugLogs.push(
         forceFallback
           ? "Forced fallback routing to Groq..."
           : "Routing request to Groq (direct)...",
       );
-      answer = await callGroq(
-        groqApiKey,
-        history,
-        question,
-        imageAttachments,
-        hasImages,
-        systemPrompt,
-      );
-      providerUsed = "Groq";
+      try {
+        answer = await callGroq(
+          groqApiKey,
+          history,
+          question,
+          imageAttachments,
+          hasImages,
+          systemPrompt,
+        );
+        providerUsed = "Groq";
+      } catch (groqErr) {
+        const grError = groqErr as Error;
+        debugLogs.push(`Groq direct failed: ${grError.message}`);
+        answer = `The Groq API is temporarily unavailable. (Detail: ${grError.message})`;
+        providerUsed = "None (Error Fallback)";
+      }
     } else {
       throw new Error("No configured LLM API keys found.");
     }
@@ -477,7 +526,7 @@ ${systemPrompt}`;
   } catch (err) {
     const error = err as Error;
     console.error("ask-copilot error:", error.message);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error.message, debugLogs }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

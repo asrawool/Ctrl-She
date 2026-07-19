@@ -138,9 +138,9 @@ export function AppTopbar() {
             .or(`machine.ilike.%${q}%,policy_no.ilike.%${q}%`)
             .limit(3),
           supabase
-            .from("inventory_items")
-            .select("id, name, item_code")
-            .or(`name.ilike.%${q}%,item_code.ilike.%${q}%`)
+            .from("spare_parts")
+            .select("id, name, item_code:part_code")
+            .or(`name.ilike.%${q}%,part_code.ilike.%${q}%`)
             .limit(3),
         ]);
 

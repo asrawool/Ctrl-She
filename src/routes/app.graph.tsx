@@ -50,12 +50,17 @@ function Graph() {
 
   const fetchData = async () => {
     try {
-      const [{ data: astData }, { data: docData }, { data: ncrData }] =
-        await Promise.all([
-          supabase.from("assets").select("*"),
-          supabase.from("documents").select("*"),
-          supabase.from("ncrs").select("*"),
-        ]);
+      const [
+        { data: astData },
+        { data: docData },
+        { data: ncrData },
+        { data: rcaData },
+      ] = await Promise.all([
+        supabase.from("assets").select("*"),
+        supabase.from("documents").select("*"),
+        supabase.from("ncrs").select("*"),
+        supabase.from("rca_reports").select("*"),
+      ]);
 
       const gNodes: Node[] = [];
       const gEdges: Edge[] = [];
@@ -125,6 +130,30 @@ function Graph() {
           x,
           y,
           details: `Severity: ${n.severity} | Status: ${n.status} | Framework: ${n.framework_ref}`,
+        });
+      });
+
+      // 3.5 Add Root Cause Analysis (RCA) Reports as Nodes
+      (rcaData || []).forEach((r, index) => {
+        const rcaNodeId = `rca-${r.id}`;
+        // Find if mapped to a specific asset
+        const mappedAsset = assetNodesList.find((an) => an.id === r.asset_id);
+        let x = 300 + (index % 3) * 100;
+        let y = 450 + Math.floor(index / 3) * 80;
+
+        if (mappedAsset) {
+          x = mappedAsset.x + (Math.random() - 0.5) * 140;
+          y = mappedAsset.y + (Math.random() - 0.5) * 140;
+          gEdges.push({ a: mappedAsset.id, b: rcaNodeId });
+        }
+
+        gNodes.push({
+          id: rcaNodeId,
+          label: `RCA: ${r.incident_ref}`,
+          type: "incident",
+          x,
+          y,
+          details: `Incident: ${r.incident_ref} | Root Cause: ${r.root_cause} | Actions: ${r.corrective_actions}`,
         });
       });
 

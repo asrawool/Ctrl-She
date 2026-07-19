@@ -1,5 +1,6 @@
 export interface Asset {
   id: string;
+  asset_code: string;
   name: string;
   type: string;
   plant: string;
@@ -30,6 +31,7 @@ export interface WorkOrder {
 
 export interface SparePart {
   id: string;
+  part_code: string;
   name: string;
   current_quantity: number;
   min_quantity: number;
@@ -115,6 +117,7 @@ export interface Certification {
   issuer: string;
   expiry_date: string;
   version: string;
+  status?: string;
   created_by?: string;
   updated_at?: string;
   derivedStatus?: "Active" | "Expiring Soon" | "Expired";

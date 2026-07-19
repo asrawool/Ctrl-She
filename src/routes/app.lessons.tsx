@@ -25,24 +25,40 @@ interface Lesson {
   ref: string;
 }
 
+interface FailurePattern {
+  id: string;
+  title: string;
+  description: string;
+  matching_root_cause: string;
+  affected_assets: string[];
+  created_at: string;
+}
+
 function Page() {
   const [incidents, setIncidents] = useState<Lesson[]>([]);
+  const [patterns, setPatterns] = useState<FailurePattern[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
     try {
-      // Query both RCAs and NCRs to combine into lessons learned timeline
-      const [{ data: rcaData }, { data: ncrData }] = await Promise.all([
-        supabase
-          .from("rca_reports")
-          .select("*")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("ncrs")
-          .select("*")
-          .order("created_at", { ascending: false }),
-      ]);
+      // Query RCAs, NCRs, and systemic failure patterns
+      const [{ data: rcaData }, { data: ncrData }, { data: patternData }] =
+        await Promise.all([
+          supabase
+            .from("rca_reports")
+            .select("*")
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("ncrs")
+            .select("*")
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("failure_patterns")
+            .select("*")
+            .order("created_at", { ascending: false }),
+        ]);
 
+      setPatterns(patternData || []);
       const combined: Lesson[] = [];
 
       if (rcaData) {
@@ -182,15 +198,38 @@ function Page() {
             <h3 className="font-display font-semibold mb-3 flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-accent" /> AI Pattern Detection
             </h3>
-            <div className="rounded-xl bg-accent/5 border border-accent/20 p-3 text-sm">
-              <div className="font-semibold">
-                Recurring lube starvation on pumps
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                3 similar incidents in 8 months across pumping stations.
-                Recommend fleet-wide lube interval review.
+            {patterns.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">
+                No systemic patterns detected yet. Scanning incoming incident
+                logs...
               </p>
-            </div>
+            ) : (
+              <div className="space-y-3">
+                {patterns.map((p) => (
+                  <div
+                    key={p.id}
+                    className="rounded-xl bg-accent/5 border border-accent/20 p-3 text-sm text-foreground"
+                  >
+                    <div className="font-semibold text-xs text-accent">
+                      {p.title}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {p.description}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {p.affected_assets.map((a) => (
+                        <span
+                          key={a}
+                          className="bg-accent/10 border border-accent/20 text-accent text-[9px] font-bold px-1.5 py-0.5 rounded"
+                        >
+                          {a}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-border bg-card p-5">

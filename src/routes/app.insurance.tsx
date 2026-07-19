@@ -26,6 +26,8 @@ import {
   Certification,
   Asset,
 } from "@/types/operational";
+import { useAuth } from "@/store/auth";
+import { hasPermission, getActionRequiredRolesLabel } from "@/services/rbac";
 
 export const Route = createFileRoute("/app/insurance")({
   head: () => ({
@@ -37,6 +39,11 @@ export const Route = createFileRoute("/app/insurance")({
 type PolicyStatus = "Active" | "Expiring Soon" | "Expired";
 
 function Page() {
+  const { role } = useAuth();
+  const canAddPolicy = hasPermission(role, "create:insurance_policies");
+  const canAddLicense = hasPermission(role, "create:machine_licenses");
+  const canAddCert = hasPermission(role, "create:certifications");
+
   const [policies, setPolicies] = useState<InsurancePolicy[]>([]);
   const [licenses, setLicenses] = useState<MachineLicense[]>([]);
   const [certifications, setCertifications] = useState<Certification[]>([]);
@@ -510,6 +517,12 @@ function Page() {
               size="sm"
               variant="outline"
               onClick={() => setShowPolicyModal(true)}
+              disabled={!canAddPolicy}
+              title={
+                !canAddPolicy
+                  ? `Requires ${getActionRequiredRolesLabel("create:insurance_policies")} role`
+                  : undefined
+              }
             >
               <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Policy
             </Button>
@@ -517,6 +530,12 @@ function Page() {
               size="sm"
               variant="outline"
               onClick={() => setShowLicenseModal(true)}
+              disabled={!canAddLicense}
+              title={
+                !canAddLicense
+                  ? `Requires ${getActionRequiredRolesLabel("create:machine_licenses")} role`
+                  : undefined
+              }
             >
               <Plus className="mr-1.5 h-3.5 w-3.5" /> Add License
             </Button>
@@ -524,6 +543,12 @@ function Page() {
               size="sm"
               className="btn-hero"
               onClick={() => setShowCertModal(true)}
+              disabled={!canAddCert}
+              title={
+                !canAddCert
+                  ? `Requires ${getActionRequiredRolesLabel("create:certifications")} role`
+                  : undefined
+              }
             >
               <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Cert
             </Button>

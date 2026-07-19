@@ -26,6 +26,8 @@ import {
 import { PageHeader, EmptyState } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useAuth } from "@/store/auth";
+import { hasPermission, getActionRequiredRolesLabel } from "@/services/rbac";
 
 import { z } from "zod";
 
@@ -251,6 +253,9 @@ function generateId(): string {
 }
 
 function Documents() {
+  const { role } = useAuth();
+  const canManageDocs = hasPermission(role, "manage:documents");
+
   const { category: initialCategory } = Route.useSearch();
   const [docs, setDocs] = useState<Doc[]>([]);
   const [view, setView] = useState<"grid" | "list">("list");
@@ -646,18 +651,28 @@ function Documents() {
 
       {/* Dropzone */}
       <div
-        onClick={() => fileRef.current?.click()}
+        onClick={() => {
+          if (!canManageDocs) return;
+          fileRef.current?.click();
+        }}
         onDragOver={(e) => {
           e.preventDefault();
+          if (!canManageDocs) return;
           setDrag(true);
         }}
         onDragLeave={() => setDrag(false)}
         onDrop={(e) => {
           e.preventDefault();
+          if (!canManageDocs) return;
           setDrag(false);
           handleUpload(e.dataTransfer.files);
         }}
-        className={`cursor-pointer rounded-2xl border-2 border-dashed p-6 text-center transition ${drag ? "border-accent bg-accent/5" : "border-border bg-muted/20"}`}
+        title={
+          !canManageDocs
+            ? `Requires ${getActionRequiredRolesLabel("manage:documents")} role`
+            : "Click or drag files here to upload"
+        }
+        className={`rounded-2xl border-2 border-dashed p-6 text-center transition ${!canManageDocs ? "opacity-60 cursor-not-allowed border-border bg-muted/20" : drag ? "border-accent bg-accent/5 cursor-pointer" : "border-border bg-muted/20 cursor-pointer"}`}
       >
         <Upload
           className={`mx-auto h-8 w-8 mb-2 ${drag ? "text-accent" : "text-muted-foreground"}`}
@@ -1067,9 +1082,13 @@ function Documents() {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={!!reprocessing[selected.id]}
+                    disabled={!canManageDocs || !!reprocessing[selected.id]}
                     onClick={() => handleReprocess(selected)}
-                    title="Re-run text extraction, OCR fallback and embedding for this document"
+                    title={
+                      !canManageDocs
+                        ? `Requires ${getActionRequiredRolesLabel("manage:documents")} role`
+                        : "Re-run text extraction, OCR fallback and embedding for this document"
+                    }
                   >
                     {reprocessing[selected.id] ? (
                       <>
@@ -1085,6 +1104,12 @@ function Documents() {
                   <Button
                     variant="outline"
                     size="sm"
+                    disabled={!canManageDocs}
+                    title={
+                      !canManageDocs
+                        ? `Requires ${getActionRequiredRolesLabel("manage:documents")} role`
+                        : undefined
+                    }
                     onClick={() => setEditingDoc({ ...selected })}
                   >
                     Edit Metadata
@@ -1092,6 +1117,12 @@ function Documents() {
                   <Button
                     variant="outline"
                     size="sm"
+                    disabled={!canManageDocs}
+                    title={
+                      !canManageDocs
+                        ? `Requires ${getActionRequiredRolesLabel("manage:documents")} role`
+                        : undefined
+                    }
                     className="text-destructive col-span-2 mt-1"
                     onClick={() => handleDelete(selected)}
                   >

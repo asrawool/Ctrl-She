@@ -27,6 +27,8 @@ import {
   CartesianGrid,
 } from "recharts";
 import { ComplianceFramework, Inspection, NCR } from "@/types/operational";
+import { useAuth } from "@/store/auth";
+import { hasPermission, getActionRequiredRolesLabel } from "@/services/rbac";
 
 export const Route = createFileRoute("/app/quality")({
   head: () => ({ meta: [{ title: "Quality & Compliance — IntelliPlant AI" }] }),
@@ -43,6 +45,10 @@ const trend = [
 ];
 
 function Page() {
+  const { role } = useAuth();
+  const canLogNcr = hasPermission(role, "create:ncrs");
+  const canScheduleInspect = hasPermission(role, "create:inspections");
+
   const [frameworks, setFrameworks] = useState<ComplianceFramework[]>([]);
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [ncrs, setNcrs] = useState<NCR[]>([]);
@@ -288,6 +294,12 @@ function Page() {
               size="sm"
               variant="outline"
               onClick={() => setShowNcrModal(true)}
+              disabled={!canLogNcr}
+              title={
+                !canLogNcr
+                  ? `Requires ${getActionRequiredRolesLabel("create:ncrs")} role`
+                  : undefined
+              }
             >
               <Plus className="mr-1.5 h-3.5 w-3.5" /> Log NCR Report
             </Button>
@@ -295,6 +307,12 @@ function Page() {
               size="sm"
               className="btn-hero"
               onClick={() => setShowInspectModal(true)}
+              disabled={!canScheduleInspect}
+              title={
+                !canScheduleInspect
+                  ? `Requires ${getActionRequiredRolesLabel("create:inspections")} role`
+                  : undefined
+              }
             >
               <Check className="mr-1.5 h-3.5 w-3.5" /> Schedule Inspection
             </Button>

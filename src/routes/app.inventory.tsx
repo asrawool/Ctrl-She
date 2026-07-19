@@ -16,6 +16,9 @@ import {
   Plus,
   X,
   RefreshCw,
+  Activity,
+  Heart,
+  TrendingUp,
 } from "lucide-react";
 import {
   BarChart,
@@ -29,7 +32,8 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { exportCsv, exportPdfReport } from "@/services/export";
-import { InventoryItem } from "@/types/operational";
+import { useAuth } from "@/store/auth";
+import { hasPermission } from "@/services/rbac";
 
 export const Route = createFileRoute("/app/inventory")({
   head: () => ({ meta: [{ title: "Asset Inventory — IntelliPlant AI" }] }),
@@ -45,14 +49,39 @@ const stockColor: Record<StockStatus, string> = {
   Reserved: "bg-accent/10 text-accent border-accent/30",
 };
 
-const consumption = [
-  { m: "Jan", v: 220 },
-  { m: "Feb", v: 245 },
-  { m: "Mar", v: 290 },
-  { m: "Apr", v: 260 },
-  { m: "May", v: 310 },
-  { m: "Jun", v: 340 },
-];
+interface DbAsset {
+  id: string;
+  name: string;
+  asset_code: string;
+  category: string;
+  manufacturer: string;
+  model?: string;
+  location: string;
+  health_percentage: number;
+  rul_days: number;
+  health_status: "healthy" | "warning" | "critical";
+  status: "Operational" | "Maintenance" | "Reserved";
+  updated_at?: string;
+}
+
+interface DbSparePart {
+  id: string;
+  name: string;
+  part_code: string;
+  category: string;
+  manufacturer: string;
+  model?: string;
+  location: string;
+  current_qty: number;
+  min_qty: number;
+  max_qty: number;
+  reorder_point: number;
+  unit_cost: number;
+  supplier: string;
+  status: "Operational" | "Maintenance" | "Reserved";
+  updated_at?: string;
+  stock?: StockStatus;
+}
 
 const trend = [
   { m: "Jan", inb: 320, out: 220 },
@@ -64,12 +93,18 @@ const trend = [
 ];
 
 function Page() {
-  const [items, setItems] = useState<InventoryItem[]>([]);
+  const { role } = useAuth();
+  const canAddAsset = hasPermission(role, "create:inventory_items");
+  const canAdjustStock = hasPermission(role, "create:inventory_movements");
+
+  const [activeTab, setActiveTab] = useState<"assets" | "spares">("assets");
+  const [assets, setAssets] = useState<DbAsset[]>([]);
+  const [parts, setParts] = useState<DbSparePart[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters & Search
   const [q, setQ] = useState("");
-  const [filterStatus, setFilterStatus] = useState<"All" | StockStatus>("All");
+  const [filterStatus, setFilterStatus] = useState("All");
   const [filterCategory, setFilterCategory] = useState("All");
 
   // Modals
@@ -77,6 +112,9 @@ function Page() {
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
 
   // Forms
+  const [selectedCategory, setSelectedCategory] = useState("Bearings");
+  const [customCategory, setCustomCategory] = useState("");
+
   const [itemForm, setItemForm] = useState({
     name: "",
     item_code: "",
@@ -102,13 +140,16 @@ function Page() {
 
   const fetchData = async () => {
     try {
-      const { data, error } = await supabase
-        .from("inventory_items")
-        .select("*")
-        .order("name", { ascending: true });
+      const [assetsRes, partsRes] = await Promise.all([
+        supabase.from("assets").select("*").order("name", { ascending: true }),
+        supabase.from("spare_parts").select("*").order("name", { ascending: true }),
+      ]);
 
-      if (error) throw error;
-      setItems(data || []);
+      if (assetsRes.error) throw assetsRes.error;
+      if (partsRes.error) throw partsRes.error;
+
+      setAssets(assetsRes.data || []);
+      setParts(partsRes.data || []);
     } catch (e) {
       console.error(e);
       toast.error("Failed to load inventory records");
@@ -124,40 +165,69 @@ function Page() {
   const handleCreateItem = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const { data, error } = await supabase
-        .from("inventory_items")
-        .insert({
-          name: itemForm.name,
-          item_code: itemForm.item_code,
-          category: itemForm.category,
-          manufacturer: itemForm.manufacturer,
-          model: itemForm.model,
-          location: itemForm.location,
-          current_qty: Number(itemForm.current_qty),
-          min_qty: Number(itemForm.min_qty),
-          max_qty: Number(itemForm.max_qty),
-          reorder_point: Number(itemForm.reorder_point),
-          unit_cost: Number(itemForm.unit_cost),
-          supplier: itemForm.supplier,
-          status: itemForm.status,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Log movement for initial setup stock
-      if (Number(itemForm.current_qty) > 0 && data) {
-        await supabase.from("inventory_movements").insert({
-          item_id: data.id,
-          direction: "inbound",
-          quantity: Number(itemForm.current_qty),
-          reason: "Initial stock registration",
-        });
+      const categoryToSave =
+        selectedCategory === "Other" ? customCategory.trim() : selectedCategory;
+      if (!categoryToSave) {
+        toast.error("Please enter a custom category name.");
+        return;
       }
 
-      toast.success("Inventory item added successfully");
+      if (activeTab === "assets") {
+        const { error } = await supabase.from("assets").insert({
+          name: itemForm.name,
+          asset_code: itemForm.item_code,
+          category: categoryToSave,
+          manufacturer: itemForm.manufacturer,
+          model: itemForm.model || null,
+          location: itemForm.location,
+          health_percentage: 100,
+          rul_days: 365,
+          health_status: "healthy",
+          status: itemForm.status,
+        });
+        if (error) throw error;
+        toast.success("Equipment Asset added successfully");
+      } else {
+        const { data, error } = await supabase
+          .from("spare_parts")
+          .insert({
+            name: itemForm.name,
+            part_code: itemForm.item_code,
+            category: categoryToSave,
+            manufacturer: itemForm.manufacturer,
+            model: itemForm.model || null,
+            location: itemForm.location,
+            current_qty: Number(itemForm.current_qty),
+            min_qty: Number(itemForm.min_qty),
+            max_qty: Number(itemForm.max_qty),
+            reorder_point: Number(itemForm.reorder_point),
+            unit_cost: Number(itemForm.unit_cost),
+            supplier: itemForm.supplier,
+            status: itemForm.status,
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        // Log movement for initial setup stock
+        if (Number(itemForm.current_qty) > 0 && data) {
+          const { error: mvtError } = await supabase
+            .from("inventory_movements")
+            .insert({
+              item_id: data.id,
+              direction: "inbound",
+              quantity: Number(itemForm.current_qty),
+              reason: "Initial stock registration",
+            });
+          if (mvtError) throw mvtError;
+        }
+        toast.success("Spare part added successfully");
+      }
+
       setShowItemModal(false);
+      setSelectedCategory("Bearings");
+      setCustomCategory("");
       setItemForm({
         name: "",
         item_code: "",
@@ -182,19 +252,19 @@ function Page() {
   const handleAdjustStock = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const selectedItem = items.find((it) => it.id === adjustmentForm.item_id);
-      if (!selectedItem) {
-        toast.error("No item selected");
+      const selectedPart = parts.find((it) => it.id === adjustmentForm.item_id);
+      if (!selectedPart) {
+        toast.error("No spare part selected");
         return;
       }
 
       // Check current quantity against outbound adjustment
       if (
         adjustmentForm.direction === "outbound" &&
-        selectedItem.current_qty < adjustmentForm.quantity
+        selectedPart.current_qty < adjustmentForm.quantity
       ) {
         toast.error(
-          `Insufficient stock! Only ${selectedItem.current_qty} units available.`,
+          `Insufficient stock! Only ${selectedPart.current_qty} units available.`,
         );
         return;
       }
@@ -211,15 +281,15 @@ function Page() {
 
       if (mvtError) throw mvtError;
 
-      // 2. Compute and Update the inventory_items current_qty
+      // 2. Compute and Update the spare_parts current_qty
       const change =
         adjustmentForm.direction === "inbound"
           ? adjustmentForm.quantity
           : -adjustmentForm.quantity;
-      const newQty = selectedItem.current_qty + change;
+      const newQty = selectedPart.current_qty + change;
 
       const { error: updateError } = await supabase
-        .from("inventory_items")
+        .from("spare_parts")
         .update({
           current_qty: newQty,
           updated_at: new Date().toISOString(),
@@ -242,230 +312,314 @@ function Page() {
     }
   };
 
-  // Derive dynamic stock status
-  const stockStatus = (a: InventoryItem): StockStatus => {
-    if (a.current_qty === 0) return "Out of Stock";
-    if (a.status === "Reserved") return "Reserved";
-    if (a.current_qty <= a.reorder_point) return "Low Stock";
+  // Derive dynamic stock status for parts
+  const derivePartStockStatus = (p: DbSparePart): StockStatus => {
+    if (p.current_qty === 0) return "Out of Stock";
+    if (p.status === "Reserved") return "Reserved";
+    if (p.current_qty <= p.reorder_point) return "Low Stock";
     return "In Stock";
   };
 
-  const withStatus = useMemo(() => {
-    return items.map((a) => ({
-      ...a,
-      stock: stockStatus(a),
+  const sparesWithStatus = useMemo(() => {
+    return parts.map((p) => ({
+      ...p,
+      stock: derivePartStockStatus(p),
     }));
-  }, [items]);
+  }, [parts]);
 
-  const filtered = useMemo(() => {
-    return withStatus.filter(
+  // Compute Categories dynamically based on Active Tab
+  const categories = useMemo(() => {
+    const activeList = activeTab === "assets" ? assets : parts;
+    return ["All", ...Array.from(new Set(activeList.map((a) => a.category)))];
+  }, [activeTab, assets, parts]);
+
+  // Computed / Filtered Lists
+  const filteredAssets = useMemo(() => {
+    return assets.filter(
       (a) =>
-        (filterStatus === "All" || a.stock === filterStatus) &&
+        (filterStatus === "All" || a.status === filterStatus) &&
         (filterCategory === "All" || a.category === filterCategory) &&
         (q === "" ||
-          [a.name, a.item_code, a.manufacturer, a.model, a.supplier].some(
+          [a.name, a.asset_code, a.manufacturer, a.model].some(
             (f) => f && f.toLowerCase().includes(q.toLowerCase()),
           )),
     );
-  }, [withStatus, q, filterStatus, filterCategory]);
+  }, [assets, q, filterStatus, filterCategory]);
 
-  const categories = [
-    "All",
-    ...Array.from(new Set(items.map((a) => a.category))),
-  ];
+  const filteredSpares = useMemo(() => {
+    return sparesWithStatus.filter(
+      (p) =>
+        (filterStatus === "All" || p.stock === filterStatus) &&
+        (filterCategory === "All" || p.category === filterCategory) &&
+        (q === "" ||
+          [p.name, p.part_code, p.manufacturer, p.model, p.supplier].some(
+            (f) => f && f.toLowerCase().includes(q.toLowerCase()),
+          )),
+    );
+  }, [sparesWithStatus, q, filterStatus, filterCategory]);
 
-  // Dynamic KPIs
-  const totalAssetsCount = items.length;
-  const inStockCount = withStatus.filter((a) => a.stock === "In Stock").length;
-  const lowStockCount = withStatus.filter(
-    (a) => a.stock === "Low Stock",
-  ).length;
-  const outOfStockCount = withStatus.filter(
-    (a) => a.stock === "Out of Stock",
-  ).length;
-  const reservedCount = withStatus.filter(
-    (a) => a.status === "Reserved",
-  ).length;
-  const maintenanceCount = withStatus.filter(
-    (a) => a.status === "Maintenance",
-  ).length;
+  // KPI Calculations
+  const assetKpis = useMemo(() => {
+    const total = assets.length;
+    const operational = assets.filter((a) => a.status === "Operational").length;
+    const maintenance = assets.filter((a) => a.status === "Maintenance").length;
+    const reserved = assets.filter((a) => a.status === "Reserved").length;
+    const criticalHealth = assets.filter((a) => a.health_status === "critical").length;
 
-  const kpis = [
-    { i: Boxes, l: "Total Assets", v: totalAssetsCount, tone: "cyan" },
-    { i: PackageCheck, l: "Assets in Stock", v: inStockCount, tone: "emerald" },
-    { i: Wrench, l: "Under Maintenance", v: maintenanceCount, tone: "warning" },
-    { i: ShoppingCart, l: "Assets Reserved", v: reservedCount, tone: "cyan" },
-    {
-      i: TrendingDown,
-      l: "Low Stock Items",
-      v: lowStockCount,
-      tone: "warning",
-    },
-    {
-      i: AlertTriangle,
-      l: "Critical Stock",
-      v: outOfStockCount,
-      tone: "destructive",
-    },
-  ];
+    return [
+      { i: Boxes, l: "Total Equipment", v: total, tone: "cyan" },
+      { i: PackageCheck, l: "Operational", v: operational, tone: "emerald" },
+      { i: Wrench, l: "Under Maintenance", v: maintenance, tone: "warning" },
+      { i: ShoppingCart, l: "Reserved", v: reserved, tone: "cyan" },
+      { i: AlertTriangle, l: "Critical Health", v: criticalHealth, tone: "destructive" },
+    ];
+  }, [assets]);
 
-  // AI-Assisted Reorder Recommendations
+  const sparesKpis = useMemo(() => {
+    const total = parts.length;
+    const inStock = sparesWithStatus.filter((p) => p.stock === "In Stock").length;
+    const lowStock = sparesWithStatus.filter((p) => p.stock === "Low Stock").length;
+    const outOfStock = sparesWithStatus.filter((p) => p.stock === "Out of Stock").length;
+    const reserved = sparesWithStatus.filter((p) => p.stock === "Reserved").length;
+
+    return [
+      { i: Boxes, l: "Total Part Types", v: total, tone: "cyan" },
+      { i: PackageCheck, l: "In Stock", v: inStock, tone: "emerald" },
+      { i: TrendingDown, l: "Low Stock", v: lowStock, tone: "warning" },
+      { i: AlertTriangle, l: "Out of Stock", v: outOfStock, tone: "destructive" },
+      { i: ShoppingCart, l: "Reserved Stock", v: reserved, tone: "cyan" },
+    ];
+  }, [parts, sparesWithStatus]);
+
+  // AI-Assisted Reorder Recommendations for Spares
   const recommendations = useMemo(() => {
-    return withStatus
-      .filter((a) => a.current_qty <= a.reorder_point)
-      .map((a) => {
-        const recommendQty = Math.max(a.max_qty - a.current_qty, a.min_qty * 2);
+    return sparesWithStatus
+      .filter((p) => p.current_qty <= p.reorder_point)
+      .map((p) => {
+        const recommendQty = Math.max(p.max_qty - p.current_qty, p.min_qty * 2);
         return {
-          ...a,
+          ...p,
           recommend: recommendQty,
-          estCost: recommendQty * a.unit_cost,
+          estCost: recommendQty * p.unit_cost,
           priority:
-            a.current_qty === 0
+            p.current_qty === 0
               ? "Critical"
-              : a.current_qty < a.min_qty
+              : p.current_qty < p.min_qty
                 ? "High"
                 : "Medium",
         };
       });
-  }, [withStatus]);
+  }, [sparesWithStatus]);
 
-  const handleCsv = () => {
-    const cols = [
-      "Asset Name",
-      "Asset ID",
-      "Category",
-      "Manufacturer",
-      "Model",
-      "Plant Location",
-      "Current Stock",
-      "Minimum Stock",
-      "Maximum Stock",
-      "Reorder Level",
-      "Unit Cost (₹)",
-      "Supplier",
-      "Status",
-      "Stock Status",
-    ];
-    exportCsv(
-      "Asset_Inventory",
-      cols,
-      filtered.map((a) => [
-        a.name,
-        a.item_code,
-        a.category,
-        a.manufacturer,
-        a.model,
-        a.location,
-        a.current_qty,
-        a.min_qty,
-        a.max_qty,
-        a.reorder_point,
-        a.unit_cost,
-        a.supplier,
-        a.status,
-        a.stock,
-      ]),
-    );
+  const handleExportCsv = () => {
+    if (activeTab === "assets") {
+      const cols = [
+        "Asset Name",
+        "Asset Code",
+        "System ID",
+        "Category",
+        "Manufacturer",
+        "Model",
+        "Location",
+        "Health %",
+        "RUL (Days)",
+        "Health Status",
+        "Operational State",
+      ];
+      exportCsv(
+        "Equipment_Assets",
+        cols,
+        filteredAssets.map((a) => [
+          a.name,
+          a.asset_code,
+          a.id,
+          a.category,
+          a.manufacturer,
+          a.model || "",
+          a.location,
+          a.health_percentage,
+          a.rul_days,
+          a.health_status,
+          a.status,
+        ]),
+      );
+    } else {
+      const cols = [
+        "Part Name",
+        "Part Code",
+        "System ID",
+        "Category",
+        "Manufacturer",
+        "Model",
+        "Location",
+        "Current Qty",
+        "Min Qty",
+        "Max Qty",
+        "Reorder Point",
+        "Unit Cost (₹)",
+        "Supplier",
+        "Stock Status",
+      ];
+      exportCsv(
+        "Spare_Parts_Inventory",
+        cols,
+        filteredSpares.map((p) => [
+          p.name,
+          p.part_code,
+          p.id,
+          p.category,
+          p.manufacturer,
+          p.model || "",
+          p.location,
+          p.current_qty,
+          p.min_qty,
+          p.max_qty,
+          p.reorder_point,
+          p.unit_cost,
+          p.supplier,
+          p.stock,
+        ]),
+      );
+    }
   };
 
-  const handlePdf = () => {
+  const handleExportPdf = () => {
+    const kpisList = activeTab === "assets" ? assetKpis : sparesKpis;
     exportPdfReport({
-      title: "Asset Inventory Report",
+      title: activeTab === "assets" ? "Equipment Assets Report" : "Spare Parts Stock Report",
       subtitle:
-        "Stock levels, reorder recommendations and consumption analytics",
-      kpis: kpis.map((k) => ({ label: k.l, value: String(k.v) })),
+        activeTab === "assets"
+          ? "Critical health metrics, remaining useful life and operational states"
+          : "Stock levels, reorder alerts and consumption metrics",
+      kpis: kpisList.map((k) => ({ label: k.l, value: String(k.v) })),
       sections: [
         {
-          heading: "Inventory Snapshot",
-          columns: [
-            "Asset",
-            "ID",
-            "Category",
-            "Location",
-            "Current",
-            "Reorder",
-            "Supplier",
-            "Stock Status",
-          ],
-          rows: filtered.map((a) => [
-            a.name,
-            a.item_code,
-            a.category,
-            a.location,
-            a.current_qty,
-            a.reorder_point,
-            a.supplier,
-            a.stock,
-          ]),
-        },
-        {
-          heading: "Recommended Purchase Orders",
-          columns: [
-            "Asset",
-            "Current",
-            "Min Required",
-            "Order Qty",
-            "Est. Cost (₹)",
-            "Supplier",
-            "Priority",
-          ],
-          rows: recommendations.map((r) => [
-            r.name,
-            r.current_qty,
-            r.min_qty,
-            r.recommend,
-            r.estCost.toLocaleString(),
-            r.supplier,
-            r.priority,
-          ]),
+          heading: activeTab === "assets" ? "Equipment Snapshot" : "Parts Snapshot",
+          columns:
+            activeTab === "assets"
+              ? ["Asset", "Code", "Category", "Location", "Health %", "Status"]
+              : ["Part Name", "Code", "Location", "Qty", "Reorder Pt", "Status"],
+          rows:
+            activeTab === "assets"
+              ? filteredAssets.map((a) => [
+                  a.name,
+                  a.asset_code,
+                  a.category,
+                  a.location,
+                  `${a.health_percentage}%`,
+                  a.status,
+                ])
+              : filteredSpares.map((p) => [
+                  p.name,
+                  p.part_code,
+                  p.location,
+                  String(p.current_qty),
+                  String(p.reorder_point),
+                  p.stock || "",
+                ]),
         },
       ],
-      filename: `Asset_Inventory_${new Date().toISOString().slice(0, 10)}.pdf`,
+      filename: activeTab === "assets" ? "assets_report" : "spare_parts_report",
     });
   };
 
-  if (loading) {
-    return (
-      <div className="flex h-[80vh] items-center justify-center">
-        <RefreshCw className="h-8 w-8 animate-spin text-accent" />
-      </div>
-    );
-  }
+  const activeKpis = activeTab === "assets" ? assetKpis : sparesKpis;
 
   return (
     <>
       <PageHeader
         title="Asset Inventory"
-        description="Track spares, consumables and equipment inventory across plants with AI-assisted reorder recommendations."
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={handleCsv}>
-              <Download className="mr-1.5 h-3.5 w-3.5" /> Export CSV
-            </Button>
-            <Button variant="outline" size="sm" onClick={handlePdf}>
-              <Download className="mr-1.5 h-3.5 w-3.5" /> Export PDF
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchData}
+              className="h-9"
+            >
+              <RefreshCw className="h-4 w-4" />
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowAdjustmentModal(true)}
+              onClick={handleExportCsv}
+              className="h-9 text-xs"
             >
-              <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Adjust Stock
+              <Download className="mr-2 h-4 w-4" /> CSV
             </Button>
             <Button
+              variant="outline"
               size="sm"
-              className="btn-hero"
-              onClick={() => setShowItemModal(true)}
+              onClick={handleExportPdf}
+              className="h-9 text-xs"
             >
-              <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Asset
+              <Download className="mr-2 h-4 w-4" /> PDF
             </Button>
+            {canAdjustStock && activeTab === "spares" && (
+              <Button
+                size="sm"
+                onClick={() => setShowAdjustmentModal(true)}
+                className="h-9 text-xs btn-hero"
+              >
+                <Plus className="mr-2 h-4 w-4" /> Adjust Spares
+              </Button>
+            )}
+            {canAddAsset && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setItemForm((f) => ({
+                    ...f,
+                    category: activeTab === "assets" ? "Motors" : "Bearings",
+                  }));
+                  setSelectedCategory(activeTab === "assets" ? "Motors" : "Bearings");
+                  setShowItemModal(true);
+                }}
+                className="h-9 text-xs btn-hero"
+              >
+                <Plus className="mr-2 h-4 w-4" /> Add{" "}
+                {activeTab === "assets" ? "Equipment" : "Spare"}
+              </Button>
+            )}
           </div>
         }
       />
 
-      {/* KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        {kpis.map(({ i: I, l, v, tone }) => (
+      {/* Tabs */}
+      <div className="mt-4 flex border-b border-border">
+        <button
+          onClick={() => {
+            setActiveTab("assets");
+            setFilterStatus("All");
+            setFilterCategory("All");
+          }}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 transition ${
+            activeTab === "assets"
+              ? "border-accent text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Equipment Assets
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab("spares");
+            setFilterStatus("All");
+            setFilterCategory("All");
+          }}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 transition ${
+            activeTab === "spares"
+              ? "border-accent text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Spare Parts Stock
+        </button>
+      </div>
+
+      {/* KPI Cards Grid */}
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {activeKpis.map(({ i: I, l, v, tone }) => (
           <div key={l} className="rounded-2xl border border-border bg-card p-4">
             <div
               className={`grid h-9 w-9 place-items-center rounded-lg ${
@@ -493,7 +647,11 @@ function Page() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search asset, manufacturer, supplier…"
+            placeholder={
+              activeTab === "assets"
+                ? "Search asset, category, manufacturer..."
+                : "Search spare part, manufacturer, supplier..."
+            }
             className="h-10 w-full rounded-xl border border-border bg-muted/40 pl-9 pr-3 text-sm outline-none focus:border-accent focus:bg-background transition"
           />
         </div>
@@ -508,26 +666,121 @@ function Page() {
         </select>
         <select
           value={filterStatus}
-          onChange={(e) =>
-            setFilterStatus(e.target.value as "All" | StockStatus)
-          }
+          onChange={(e) => setFilterStatus(e.target.value)}
           className="h-10 rounded-xl border border-border bg-background px-3 text-sm"
         >
-          {["All", "In Stock", "Low Stock", "Out of Stock", "Reserved"].map(
-            (s) => (
-              <option key={s}>{s}</option>
-            ),
+          <option value="All">All Statuses</option>
+          {activeTab === "assets" ? (
+            <>
+              <option value="Operational">Operational</option>
+              <option value="Maintenance">Maintenance</option>
+              <option value="Reserved">Reserved</option>
+            </>
+          ) : (
+            <>
+              <option value="In Stock">In Stock</option>
+              <option value="Low Stock">Low Stock</option>
+              <option value="Out of Stock">Out of Stock</option>
+              <option value="Reserved">Reserved</option>
+            </>
           )}
         </select>
       </div>
 
-      {/* Inventory table */}
+      {/* Dynamic Tables Grid */}
       <div className="mt-4 rounded-2xl border border-border bg-card overflow-hidden">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="p-8 flex justify-center items-center">
+            <Activity className="animate-spin text-muted-foreground h-6 w-6" />
+          </div>
+        ) : activeTab === "assets" ? (
+          filteredAssets.length === 0 ? (
+            <EmptyState
+              icon={Boxes}
+              title="No assets yet"
+              description="Add your first piece of stationary equipment to get started."
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    {[
+                      "Asset Name",
+                      "Asset Code",
+                      "System ID",
+                      "Category",
+                      "Manufacturer",
+                      "Location",
+                      "Health %",
+                      "RUL (Days)",
+                      "Health Status",
+                      "State",
+                    ].map((h) => (
+                      <th
+                        key={h}
+                        className="px-4 py-3 text-left font-semibold whitespace-nowrap"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAssets.map((a) => (
+                    <tr
+                      key={a.id}
+                      className="border-t border-border hover:bg-muted/20"
+                    >
+                      <td className="px-4 py-3 font-medium">{a.name}</td>
+                      <td className="px-4 py-3 text-muted-foreground font-mono">
+                        {a.asset_code}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground font-mono max-w-[100px] truncate" title={a.id}>
+                        {a.id}
+                      </td>
+                      <td className="px-4 py-3">{a.category}</td>
+                      <td className="px-4 py-3">{a.manufacturer}</td>
+                      <td className="px-4 py-3">{a.location}</td>
+                      <td className="px-4 py-3 font-semibold">{a.health_percentage}%</td>
+                      <td className="px-4 py-3 text-muted-foreground">{a.rul_days} d</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                            a.health_status === "critical"
+                              ? "bg-destructive/10 text-destructive border-destructive/20"
+                              : a.health_status === "warning"
+                                ? "bg-orange-500/10 text-orange-500 border-orange-500/20"
+                                : "bg-emerald/10 text-emerald border-emerald/20"
+                          }`}
+                        >
+                          {a.health_status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                            a.status === "Operational"
+                              ? "bg-emerald/10 text-emerald border-emerald/20"
+                              : a.status === "Maintenance"
+                                ? "bg-orange-500/10 text-orange-500 border-orange-500/20"
+                                : "bg-accent/10 text-accent border-accent/20"
+                          }`}
+                        >
+                          {a.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : filteredSpares.length === 0 ? (
           <EmptyState
             icon={Boxes}
-            title="No inventory items match"
-            description="Adjust your filters or search to see stock."
+            title="No spare parts stock match"
+            description="Adjust your filters or search to see consumable stock."
           />
         ) : (
           <div className="overflow-x-auto">
@@ -535,18 +788,19 @@ function Page() {
               <thead className="bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
                 <tr>
                   {[
-                    "Asset",
-                    "ID",
+                    "Part Name",
+                    "Part Code",
+                    "System ID",
                     "Category",
                     "Manufacturer",
                     "Location",
-                    "Current",
-                    "Min",
-                    "Max",
-                    "Reorder",
+                    "Current qty",
+                    "Min qty",
+                    "Max qty",
+                    "Reorder point",
                     "Unit Cost",
                     "Supplier",
-                    "Stock",
+                    "Stock Status",
                   ].map((h) => (
                     <th
                       key={h}
@@ -558,37 +812,34 @@ function Page() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((a) => (
+                {filteredSpares.map((p) => (
                   <tr
-                    key={a.id}
+                    key={p.id}
                     className="border-t border-border hover:bg-muted/20"
                   >
-                    <td className="px-4 py-3 font-medium">{a.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {a.item_code}
+                    <td className="px-4 py-3 font-medium">{p.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground font-mono">
+                      {p.part_code}
                     </td>
-                    <td className="px-4 py-3">{a.category}</td>
-                    <td className="px-4 py-3">{a.manufacturer}</td>
-                    <td className="px-4 py-3">{a.location}</td>
-                    <td className="px-4 py-3 font-semibold">{a.current_qty}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {a.min_qty}
+                    <td className="px-4 py-3 text-xs text-muted-foreground font-mono max-w-[100px] truncate" title={p.id}>
+                      {p.id}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {a.max_qty}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {a.reorder_point}
-                    </td>
-                    <td className="px-4 py-3">
-                      ₹{a.unit_cost.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">{a.supplier}</td>
+                    <td className="px-4 py-3">{p.category}</td>
+                    <td className="px-4 py-3">{p.manufacturer}</td>
+                    <td className="px-4 py-3">{p.location}</td>
+                    <td className="px-4 py-3 font-semibold">{p.current_qty}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{p.min_qty}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{p.max_qty}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{p.reorder_point}</td>
+                    <td className="px-4 py-3">₹{p.unit_cost.toLocaleString()}</td>
+                    <td className="px-4 py-3">{p.supplier}</td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${stockColor[a.stock as StockStatus]}`}
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                          stockColor[p.stock as StockStatus]
+                        }`}
                       >
-                        {a.stock}
+                        {p.stock}
                       </span>
                     </td>
                   </tr>
@@ -599,84 +850,86 @@ function Page() {
         )}
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
-        {/* Recommended Purchase Orders */}
-        <div className="rounded-2xl border border-border bg-card p-5 lg:col-span-2">
-          <h3 className="font-display font-semibold mb-4">
-            Recommended Purchase Orders (AI)
-          </h3>
-          {recommendations.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">
-              All stock levels are currently optimal.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {recommendations.slice(0, 3).map((r) => (
-                <div
-                  key={r.id}
-                  className="flex items-center justify-between border border-border rounded-xl p-3 hover:border-accent transition"
-                >
-                  <div>
-                    <div className="font-semibold text-sm">{r.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      Current Stock: <b>{r.current_qty}</b> · Reorder Target:{" "}
-                      <b>{r.reorder_point}</b>
+      {activeTab === "spares" && (
+        <div className="mt-6 grid gap-4 lg:grid-cols-3 animate-fadeIn">
+          {/* Recommended Purchase Orders */}
+          <div className="rounded-2xl border border-border bg-card p-5 lg:col-span-2">
+            <h3 className="font-display font-semibold mb-4">
+              Recommended Purchase Orders (AI)
+            </h3>
+            {recommendations.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">
+                All stock levels are currently optimal.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {recommendations.slice(0, 3).map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex items-center justify-between border border-border rounded-xl p-3 hover:border-accent transition"
+                  >
+                    <div>
+                      <div className="font-semibold text-sm">{r.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Current Stock: <b>{r.current_qty}</b> · Reorder Target:{" "}
+                        <b>{r.reorder_point}</b>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span
+                        className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-bold border uppercase tracking-wider mb-1 ${
+                          r.priority === "Critical"
+                            ? "bg-destructive/10 text-destructive border-destructive/20"
+                            : r.priority === "High"
+                              ? "bg-orange-500/10 text-orange-500 border-orange-500/20"
+                              : "bg-emerald/10 text-emerald border-emerald/20"
+                        }`}
+                      >
+                        {r.priority} Priority
+                      </span>
+                      <div className="text-xs font-semibold">
+                        Order Qty: {r.recommend}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">
+                        Est: ₹{r.estCost.toLocaleString()}
+                      </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span
-                      className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-bold border uppercase tracking-wider mb-1 ${
-                        r.priority === "Critical"
-                          ? "bg-destructive/10 text-destructive border-destructive/20"
-                          : r.priority === "High"
-                            ? "bg-orange-500/10 text-orange-500 border-orange-500/20"
-                            : "bg-emerald/10 text-emerald border-emerald/20"
-                      }`}
-                    >
-                      {r.priority} Priority
-                    </span>
-                    <div className="text-xs font-semibold">
-                      Order Qty: {r.recommend}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground">
-                      Est: ₹{r.estCost.toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-        {/* Stock Movement Trends */}
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <h3 className="font-display font-semibold mb-4">Stock movements</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={trend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="m" fontSize={11} />
-              <YAxis fontSize={11} />
-              <Tooltip />
-              <Line
-                type="monotone"
-                dataKey="inb"
-                name="Inbound"
-                stroke="#18C37E"
-                strokeWidth={2}
-              />
-              <Line
-                type="monotone"
-                dataKey="out"
-                name="Outbound"
-                stroke="#F31260"
-                strokeWidth={2}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          {/* Stock Movement Trends */}
+          <div className="rounded-2xl border border-border bg-card p-5">
+            <h3 className="font-display font-semibold mb-4">Stock movements</h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={trend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="m" fontSize={11} />
+                <YAxis fontSize={11} />
+                <Tooltip />
+                <Line
+                  type="monotone"
+                  dataKey="inb"
+                  name="Inbound"
+                  stroke="#18C37E"
+                  strokeWidth={2}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="out"
+                  name="Outbound"
+                  stroke="#F31260"
+                  strokeWidth={2}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* ADD ASSET MODAL */}
+      {/* ADD MODAL */}
       {showItemModal && (
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <form
@@ -685,22 +938,30 @@ function Page() {
           >
             <button
               type="button"
-              onClick={() => setShowItemModal(false)}
+              onClick={() => {
+                setShowItemModal(false);
+                setSelectedCategory(activeTab === "assets" ? "Motors" : "Bearings");
+                setCustomCategory("");
+              }}
               className="absolute right-4 top-4 text-muted-foreground hover:text-foreground"
             >
               <X className="h-5 w-5" />
             </button>
             <h3 className="font-display text-md font-bold">
-              Add Inventory Asset
+              Add {activeTab === "assets" ? "Equipment Asset" : "Spare Part"}
             </h3>
             <div className="space-y-3 text-xs max-h-[350px] overflow-y-auto pr-1">
               <div>
                 <label className="block text-muted-foreground mb-1">
-                  Asset Name
+                  Name
                 </label>
                 <input
                   required
-                  placeholder="e.g. Mechanical Seal MS-201"
+                  placeholder={
+                    activeTab === "assets"
+                      ? "e.g. Centrifugal Pump P-401"
+                      : "e.g. Mechanical Seal MS-201"
+                  }
                   value={itemForm.name}
                   onChange={(e) =>
                     setItemForm({ ...itemForm, name: e.target.value })
@@ -710,11 +971,11 @@ function Page() {
               </div>
               <div>
                 <label className="block text-muted-foreground mb-1">
-                  Asset ID / Code
+                  Code / ID
                 </label>
                 <input
                   required
-                  placeholder="e.g. BRG-6205"
+                  placeholder={activeTab === "assets" ? "e.g. P-401" : "e.g. SP-001"}
                   value={itemForm.item_code}
                   onChange={(e) =>
                     setItemForm({ ...itemForm, item_code: e.target.value })
@@ -727,22 +988,48 @@ function Page() {
                   Category
                 </label>
                 <select
-                  value={itemForm.category}
-                  onChange={(e) =>
-                    setItemForm({ ...itemForm, category: e.target.value })
-                  }
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
                   className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
                 >
-                  <option value="Bearings">Bearings</option>
-                  <option value="Belts">Belts</option>
-                  <option value="Lubricants">Lubricants</option>
-                  <option value="Instrumentation">Instrumentation</option>
-                  <option value="Motors">Motors</option>
-                  <option value="Seals">Seals</option>
-                  <option value="Valves">Valves</option>
-                  <option value="Electronics">Electronics</option>
+                  {activeTab === "assets" ? (
+                    <>
+                      <option value="Pumps">Pumps</option>
+                      <option value="Reactors">Reactors</option>
+                      <option value="Heat Exchangers">Heat Exchangers</option>
+                      <option value="Compressors">Compressors</option>
+                      <option value="Boilers">Boilers</option>
+                      <option value="Other">Other</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Bearings">Bearings</option>
+                      <option value="Belts">Belts</option>
+                      <option value="Lubricants">Lubricants</option>
+                      <option value="Instrumentation">Instrumentation</option>
+                      <option value="Motors">Motors</option>
+                      <option value="Seals">Seals</option>
+                      <option value="Valves">Valves</option>
+                      <option value="Electronics">Electronics</option>
+                      <option value="Other">Other</option>
+                    </>
+                  )}
                 </select>
               </div>
+              {selectedCategory === "Other" && (
+                <div>
+                  <label className="block text-muted-foreground mb-1">
+                    Custom Category Name
+                  </label>
+                  <input
+                    required
+                    placeholder="e.g. Couplings"
+                    value={customCategory}
+                    onChange={(e) => setCustomCategory(e.target.value)}
+                    className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
+                  />
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-muted-foreground mb-1">
@@ -763,7 +1050,6 @@ function Page() {
                     Model / Reference
                   </label>
                   <input
-                    required
                     placeholder="e.g. 6205-2RS"
                     value={itemForm.model}
                     onChange={(e) =>
@@ -775,11 +1061,11 @@ function Page() {
               </div>
               <div>
                 <label className="block text-muted-foreground mb-1">
-                  Storage Location
+                  Storage / Plant Location
                 </label>
                 <input
                   required
-                  placeholder="e.g. Warehouse A, Bay 4"
+                  placeholder="e.g. Plant A, Bay 4"
                   value={itemForm.location}
                   onChange={(e) =>
                     setItemForm({ ...itemForm, location: e.target.value })
@@ -787,130 +1073,133 @@ function Page() {
                   className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-muted-foreground mb-1">
-                    Current Qty
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={itemForm.current_qty}
-                    onChange={(e) =>
-                      setItemForm({
-                        ...itemForm,
-                        current_qty: Number(e.target.value),
-                      })
-                    }
-                    className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-muted-foreground mb-1">
-                    Min Alert Qty
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={itemForm.min_qty}
-                    onChange={(e) =>
-                      setItemForm({
-                        ...itemForm,
-                        min_qty: Number(e.target.value),
-                      })
-                    }
-                    className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-muted-foreground mb-1">
-                    Max Capacity Qty
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={itemForm.max_qty}
-                    onChange={(e) =>
-                      setItemForm({
-                        ...itemForm,
-                        max_qty: Number(e.target.value),
-                      })
-                    }
-                    className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-muted-foreground mb-1">
-                    Reorder Level Qty
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={itemForm.reorder_point}
-                    onChange={(e) =>
-                      setItemForm({
-                        ...itemForm,
-                        reorder_point: Number(e.target.value),
-                      })
-                    }
-                    className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-muted-foreground mb-1">
-                    Unit Cost (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={itemForm.unit_cost}
-                    onChange={(e) =>
-                      setItemForm({
-                        ...itemForm,
-                        unit_cost: Number(e.target.value),
-                      })
-                    }
-                    className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-muted-foreground mb-1">
-                    Status
-                  </label>
-                  <select
-                    value={itemForm.status}
-                    onChange={(e) =>
-                      setItemForm({
-                        ...itemForm,
-                        status: e.target.value as
-                          "Operational" | "Maintenance" | "Reserved",
-                      })
-                    }
-                    className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                  >
-                    <option value="Operational">Operational</option>
-                    <option value="Maintenance">Maintenance</option>
-                    <option value="Reserved">Reserved</option>
-                  </select>
-                </div>
-              </div>
+
+              {activeTab === "spares" && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-muted-foreground mb-1">
+                        Current Qty
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={itemForm.current_qty}
+                        onChange={(e) =>
+                          setItemForm({
+                            ...itemForm,
+                            current_qty: Number(e.target.value),
+                          })
+                        }
+                        className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-muted-foreground mb-1">
+                        Min Alert Qty
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={itemForm.min_qty}
+                        onChange={(e) =>
+                          setItemForm({
+                            ...itemForm,
+                            min_qty: Number(e.target.value),
+                          })
+                        }
+                        className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-muted-foreground mb-1">
+                        Max Capacity Qty
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={itemForm.max_qty}
+                        onChange={(e) =>
+                          setItemForm({
+                            ...itemForm,
+                            max_qty: Number(e.target.value),
+                          })
+                        }
+                        className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-muted-foreground mb-1">
+                        Reorder Level Qty
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={itemForm.reorder_point}
+                        onChange={(e) =>
+                          setItemForm({
+                            ...itemForm,
+                            reorder_point: Number(e.target.value),
+                          })
+                        }
+                        className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-muted-foreground mb-1">
+                      Unit Cost (₹)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={itemForm.unit_cost}
+                      onChange={(e) =>
+                        setItemForm({
+                          ...itemForm,
+                          unit_cost: Number(e.target.value),
+                        })
+                      }
+                      className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-muted-foreground mb-1">
+                      Supplier
+                    </label>
+                    <input
+                      required
+                      placeholder="e.g. Festo India"
+                      value={itemForm.supplier}
+                      onChange={(e) =>
+                        setItemForm({ ...itemForm, supplier: e.target.value })
+                      }
+                      className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
+                    />
+                  </div>
+                </>
+              )}
+
               <div>
                 <label className="block text-muted-foreground mb-1">
-                  Supplier
+                  Operational State
                 </label>
-                <input
-                  required
-                  placeholder="e.g. Festo India"
-                  value={itemForm.supplier}
+                <select
+                  value={itemForm.status}
                   onChange={(e) =>
-                    setItemForm({ ...itemForm, supplier: e.target.value })
+                    setItemForm({
+                      ...itemForm,
+                      status: e.target.value as "Operational" | "Maintenance" | "Reserved",
+                    })
                   }
                   className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                />
+                >
+                  <option value="Operational">Operational</option>
+                  <option value="Maintenance">Maintenance</option>
+                  <option value="Reserved">Reserved</option>
+                </select>
               </div>
             </div>
             <div className="flex gap-2">
@@ -918,12 +1207,16 @@ function Page() {
                 type="button"
                 variant="outline"
                 className="w-full text-xs h-8"
-                onClick={() => setShowItemModal(false)}
+                onClick={() => {
+                  setShowItemModal(false);
+                  setSelectedCategory(activeTab === "assets" ? "Motors" : "Bearings");
+                  setCustomCategory("");
+                }}
               >
                 Cancel
               </Button>
               <Button type="submit" className="w-full text-xs h-8 btn-hero">
-                Save Asset
+                Save {activeTab === "assets" ? "Asset" : "Part"}
               </Button>
             </div>
           </form>
@@ -950,7 +1243,7 @@ function Page() {
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block text-muted-foreground mb-1">
-                  Select Spares Asset
+                  Select Spare Part
                 </label>
                 <select
                   value={adjustmentForm.item_id}
@@ -963,10 +1256,10 @@ function Page() {
                   required
                   className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
                 >
-                  <option value="">-- Choose Item --</option>
-                  {items.map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.name} ({it.item_code}) — Current: {it.current_qty}
+                  <option value="">-- Choose Spare Part --</option>
+                  {parts.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.part_code}) — Current: {p.current_qty}
                     </option>
                   ))}
                 </select>
@@ -1012,7 +1305,7 @@ function Page() {
                   Reason / Purpose
                 </label>
                 <input
-                  placeholder="e.g. Pump lubrication repair, Stock replenishment"
+                  placeholder="e.g. Pump coupling replacement, Stock replenishment"
                   value={adjustmentForm.reason}
                   onChange={(e) =>
                     setAdjustmentForm({
