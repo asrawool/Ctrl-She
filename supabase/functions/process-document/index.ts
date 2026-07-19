@@ -46,7 +46,9 @@ Use the following guidelines for classification:
 
 Respond with EXACTLY one of the allowed categories. Do not include quotes, markdown formatting, explanations, or any other characters.`;
 
+  const fileExtension = fileName.split(".").pop()?.toUpperCase() || "UNKNOWN";
   const userPrompt = `Document Filename: ${fileName}
+Document File Extension: ${fileExtension}
 Document Text Preview (first 2500 characters):
 ${textContent.substring(0, 2500)}`;
 
@@ -93,7 +95,7 @@ ${textContent.substring(0, 2500)}`;
     try {
       console.log("Routing classification to Gemini (fallback)...");
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -196,6 +198,104 @@ function extractPrintableText(buffer: ArrayBuffer) {
   return chunks.slice(0, 200).join("\n");
 }
 
+function parseCSVStructured(csvText: string): string {
+  const lines = csvText.split(/\r?\n/).map((line) => {
+    const result = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === "," && !inQuotes) {
+        result.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  });
+
+  if (lines.length === 0 || (lines.length === 1 && lines[0].length === 0)) {
+    return "";
+  }
+
+  const headers = lines[0];
+  let markdown = `CSV Data Structure:\n\n| ${headers.join(" | ")} |\n`;
+  markdown += `| ${headers.map(() => "---").join(" | ")} |\n`;
+  for (let i = 1; i < lines.length; i++) {
+    const row = lines[i];
+    if (row.length === 1 && row[0] === "") continue;
+    while (row.length < headers.length) row.push("");
+    const paddedRow = row.slice(0, headers.length);
+    markdown += `| ${paddedRow.join(" | ")} |\n`;
+  }
+  return markdown;
+}
+
+function paragraphSentenceAwareChunk(
+  text: string,
+  chunkSize = 1000,
+  overlap = 150,
+): string[] {
+  if (!text) return [];
+  const paragraphs = text.split(/\r?\n\r?\n/);
+  const chunks: string[] = [];
+  let currentChunk = "";
+
+  for (const para of paragraphs) {
+    const trimmedPara = para.trim();
+    if (!trimmedPara) continue;
+
+    if (trimmedPara.length > chunkSize) {
+      if (currentChunk.trim()) {
+        chunks.push(currentChunk.trim());
+        currentChunk = "";
+      }
+
+      const sentences = trimmedPara.split(/(?<=[.?!])\s+/);
+      for (const sentence of sentences) {
+        const trimmedSentence = sentence.trim();
+        if (!trimmedSentence) continue;
+
+        if (currentChunk.length + trimmedSentence.length > chunkSize) {
+          if (currentChunk.trim()) {
+            chunks.push(currentChunk.trim());
+          }
+          const overlapStart = Math.max(0, currentChunk.length - overlap);
+          currentChunk =
+            currentChunk.substring(overlapStart) + " " + trimmedSentence;
+        } else {
+          currentChunk = currentChunk
+            ? currentChunk + " " + trimmedSentence
+            : trimmedSentence;
+        }
+      }
+    } else {
+      if (currentChunk.length + trimmedPara.length > chunkSize) {
+        if (currentChunk.trim()) {
+          chunks.push(currentChunk.trim());
+        }
+        const overlapStart = Math.max(0, currentChunk.length - overlap);
+        currentChunk =
+          currentChunk.substring(overlapStart) + "\n\n" + trimmedPara;
+      } else {
+        currentChunk = currentChunk
+          ? currentChunk + "\n\n" + trimmedPara
+          : trimmedPara;
+      }
+    }
+  }
+
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+
+  return chunks;
+}
+
 async function tryGeminiExtraction(
   fileBlob: Blob,
   mimeType: string,
@@ -211,7 +311,7 @@ async function tryGeminiExtraction(
   const base64 = btoa(binaryString);
 
   const geminiResponse = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -306,8 +406,15 @@ serve(async (req) => {
     const ext = doc.name.split(".").pop()?.toLowerCase();
     const mimeType = detectMimeType(doc.name);
 
-    if (ext === "txt" || ext === "csv" || ext === "json") {
+    if (ext === "txt" || ext === "json") {
       textContent = await fileBlob.text();
+    } else if (ext === "csv") {
+      const rawText = await fileBlob.text();
+      textContent = parseCSVStructured(rawText);
+    } else if (ext === "dwg") {
+      const buffer = await fileBlob.arrayBuffer();
+      const rawText = extractPrintableText(buffer);
+      textContent = `[AutoCAD DWG Technical Drawing - Extraction Limitation Warning]\nWarning: Full vector CAD parsing is not supported directly in the browser/edge environment. Below is a best-effort extraction of embedded text entities, layer names, title-block labels, and metadata found in the drawing binary:\n\n${rawText}`;
     } else {
       try {
         textContent = await tryGeminiExtraction(
@@ -379,84 +486,85 @@ serve(async (req) => {
       .delete()
       .eq("document_id", documentId);
 
-    // 5. Chunk text (~1000 characters with 150 overlap)
-    const chunks: string[] = [];
-    const chunkSize = 1000;
-    const overlap = 150;
-
-    let index = 0;
-    while (index < textContent.length) {
-      const chunk = textContent.substring(index, index + chunkSize);
-      if (chunk.trim()) {
-        chunks.push(chunk);
-      }
-      index += chunkSize - overlap;
-    }
+    // 5. Chunk text (paragraph and sentence-aware chunking)
+    const chunks = paragraphSentenceAwareChunk(textContent, 1000, 150);
 
     console.log(`Splitting document into ${chunks.length} chunks...`);
 
-    // 6. Generate embeddings and save chunks
-    for (let i = 0; i < chunks.length; i++) {
-      const chunkText = chunks[i];
+    // 6. Generate embeddings and save chunks (batch concurrency: 5 at a time)
+    const batchSize = 5;
+    for (let i = 0; i < chunks.length; i += batchSize) {
+      const batch = chunks.slice(i, i + batchSize);
       console.log(
-        `Generating embedding for chunk ${i + 1}/${chunks.length}...`,
+        `Processing embedding batch: chunks ${i + 1} to ${Math.min(i + batchSize, chunks.length)} of ${chunks.length}...`,
       );
+      await Promise.all(
+        batch.map(async (chunkText, index) => {
+          const chunkIdx = i + index;
+          let embeddingValues: number[];
 
-      let embeddingValues = null;
+          try {
+            const embeddingResponse = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent?key=${geminiApiKey}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  model: "models/gemini-embedding-2",
+                  content: { parts: [{ text: chunkText }] },
+                  outputDimensionality: 768,
+                }),
+              },
+            );
 
-      try {
-        const embeddingResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent?key=${geminiApiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: "models/gemini-embedding-2",
-              content: { parts: [{ text: chunkText }] },
-              outputDimensionality: 768,
-            }),
-          },
-        );
+            if (!embeddingResponse.ok) {
+              const errText = await embeddingResponse.text();
+              throw new Error(
+                `Gemini embedding failed for chunk ${chunkIdx}: ${errText}`,
+              );
+            }
 
-        if (!embeddingResponse.ok) {
-          const errText = await embeddingResponse.text();
-          throw new Error(`Gemini embedding failed for chunk ${i}: ${errText}`);
-        }
+            const embeddingData = await embeddingResponse.json();
+            const values = embeddingData.embedding?.values;
 
-        const embeddingData = await embeddingResponse.json();
-        embeddingValues = embeddingData.embedding?.values;
+            if (!values) {
+              throw new Error(
+                `No embedding values returned for chunk ${chunkIdx}`,
+              );
+            }
 
-        if (!embeddingValues) {
-          throw new Error(`No embedding values returned for chunk ${i}`);
-        }
-      } catch (geminiErr) {
-        console.warn(
-          `Embedding generation failed, falling back to mock 768-dim vector:`,
-          (geminiErr as Error).message,
-        );
-        // Generate a deterministic 768-dimension mock vector
-        embeddingValues = Array.from({ length: 768 }, (_, idx) => {
-          return Math.sin(idx + i) * 0.05;
-        });
-      }
+            embeddingValues = values;
+          } catch (geminiErr) {
+            console.warn(
+              `Embedding generation failed, falling back to mock 768-dim vector:`,
+              (geminiErr as Error).message,
+            );
+            embeddingValues = Array.from({ length: 768 }, (_, idx) => {
+              return Math.sin(idx + chunkIdx) * 0.05;
+            });
+          }
 
-      const { error: insertError } = await supabase
-        .from("document_chunks")
-        .insert({
-          document_id: documentId,
-          content: chunkText,
-          chunk_index: i,
-          embedding: embeddingValues,
-          metadata: {
-            category: doc.category,
-            asset: doc.asset,
-            version: doc.version,
-          },
-        });
+          const { error: insertError } = await supabase
+            .from("document_chunks")
+            .insert({
+              document_id: documentId,
+              content: chunkText,
+              chunk_index: chunkIdx,
+              embedding: embeddingValues,
+              metadata: {
+                category: doc.category,
+                asset: doc.asset,
+                version: doc.version,
+              },
+            });
 
-      if (insertError) {
-        throw new Error(`Failed to save chunk ${i}: ${insertError.message}`);
-      }
+          if (insertError) {
+            throw new Error(
+              `Failed to save chunk ${chunkIdx}: ${insertError.message}`,
+            );
+          }
+        }),
+      );
     }
 
     // 7. Update document status to ready

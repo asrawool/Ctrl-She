@@ -25,7 +25,6 @@ import { Route as AppProcurementRouteImport } from './routes/app.procurement'
 import { Route as AppNotificationsRouteImport } from './routes/app.notifications'
 import { Route as AppMaintenanceRouteImport } from './routes/app.maintenance'
 import { Route as AppLessonsRouteImport } from './routes/app.lessons'
-import { Route as AppKnowledgeRouteImport } from './routes/app.knowledge'
 import { Route as AppInventoryRouteImport } from './routes/app.inventory'
 import { Route as AppInsuranceRouteImport } from './routes/app.insurance'
 import { Route as AppHelpRouteImport } from './routes/app.help'
@@ -115,11 +114,6 @@ const AppLessonsRoute = AppLessonsRouteImport.update({
   path: '/lessons',
   getParentRoute: () => AppRoute,
 } as any)
-const AppKnowledgeRoute = AppKnowledgeRouteImport.update({
-  id: '/knowledge',
-  path: '/knowledge',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppInventoryRoute = AppInventoryRouteImport.update({
   id: '/inventory',
   path: '/inventory',
@@ -175,7 +169,6 @@ export interface FileRoutesByFullPath {
   '/app/help': typeof AppHelpRoute
   '/app/insurance': typeof AppInsuranceRoute
   '/app/inventory': typeof AppInventoryRoute
-  '/app/knowledge': typeof AppKnowledgeRoute
   '/app/lessons': typeof AppLessonsRoute
   '/app/maintenance': typeof AppMaintenanceRoute
   '/app/notifications': typeof AppNotificationsRoute
@@ -202,7 +195,6 @@ export interface FileRoutesByTo {
   '/app/help': typeof AppHelpRoute
   '/app/insurance': typeof AppInsuranceRoute
   '/app/inventory': typeof AppInventoryRoute
-  '/app/knowledge': typeof AppKnowledgeRoute
   '/app/lessons': typeof AppLessonsRoute
   '/app/maintenance': typeof AppMaintenanceRoute
   '/app/notifications': typeof AppNotificationsRoute
@@ -230,7 +222,6 @@ export interface FileRoutesById {
   '/app/help': typeof AppHelpRoute
   '/app/insurance': typeof AppInsuranceRoute
   '/app/inventory': typeof AppInventoryRoute
-  '/app/knowledge': typeof AppKnowledgeRoute
   '/app/lessons': typeof AppLessonsRoute
   '/app/maintenance': typeof AppMaintenanceRoute
   '/app/notifications': typeof AppNotificationsRoute
@@ -259,7 +250,6 @@ export interface FileRouteTypes {
     | '/app/help'
     | '/app/insurance'
     | '/app/inventory'
-    | '/app/knowledge'
     | '/app/lessons'
     | '/app/maintenance'
     | '/app/notifications'
@@ -286,7 +276,6 @@ export interface FileRouteTypes {
     | '/app/help'
     | '/app/insurance'
     | '/app/inventory'
-    | '/app/knowledge'
     | '/app/lessons'
     | '/app/maintenance'
     | '/app/notifications'
@@ -313,7 +302,6 @@ export interface FileRouteTypes {
     | '/app/help'
     | '/app/insurance'
     | '/app/inventory'
-    | '/app/knowledge'
     | '/app/lessons'
     | '/app/maintenance'
     | '/app/notifications'
@@ -449,13 +437,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppLessonsRouteImport
       parentRoute: typeof AppRoute
     }
-    '/app/knowledge': {
-      id: '/app/knowledge'
-      path: '/knowledge'
-      fullPath: '/app/knowledge'
-      preLoaderRoute: typeof AppKnowledgeRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/app/inventory': {
       id: '/app/inventory'
       path: '/inventory'
@@ -524,7 +505,6 @@ interface AppRouteChildren {
   AppHelpRoute: typeof AppHelpRoute
   AppInsuranceRoute: typeof AppInsuranceRoute
   AppInventoryRoute: typeof AppInventoryRoute
-  AppKnowledgeRoute: typeof AppKnowledgeRoute
   AppLessonsRoute: typeof AppLessonsRoute
   AppMaintenanceRoute: typeof AppMaintenanceRoute
   AppNotificationsRoute: typeof AppNotificationsRoute
@@ -543,7 +523,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppHelpRoute: AppHelpRoute,
   AppInsuranceRoute: AppInsuranceRoute,
   AppInventoryRoute: AppInventoryRoute,
-  AppKnowledgeRoute: AppKnowledgeRoute,
   AppLessonsRoute: AppLessonsRoute,
   AppMaintenanceRoute: AppMaintenanceRoute,
   AppNotificationsRoute: AppNotificationsRoute,

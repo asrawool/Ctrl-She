@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   LayoutDashboard,
   Bot,
-  Library,
   FileText,
   Share2,
   Wrench,
@@ -39,12 +38,7 @@ const ITEMS: Item[] = [
     module: "dashboard",
   },
   { to: "/app/copilot", label: "AI Copilot", icon: Bot, module: "copilot" },
-  {
-    to: "/app/knowledge",
-    label: "Knowledge Hub",
-    icon: Library,
-    module: "knowledge",
-  },
+
   {
     to: "/app/documents",
     label: "Documents",

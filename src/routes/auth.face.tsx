@@ -404,7 +404,12 @@ function FacePage() {
           stopCamera();
           setTimeout(() => {
             setFaceVerified(true);
-            navigate({ to: "/auth/role" });
+            if (reset) {
+              useAuth.getState().logout();
+              navigate({ to: "/auth/login" });
+            } else {
+              navigate({ to: "/auth/role" });
+            }
           }, 1500);
         } else {
           throw new Error("Registration failed");

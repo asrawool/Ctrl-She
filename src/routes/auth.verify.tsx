@@ -56,8 +56,11 @@ function VerifyPage() {
     if (clean && i < 5) refs.current[i + 1]?.focus();
   };
   const handleKey = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && !digits[i] && i > 0)
+    if (e.key === "Backspace" && !digits[i] && i > 0) {
       refs.current[i - 1]?.focus();
+    } else if (e.key === "Enter" && complete) {
+      verify();
+    }
   };
   const handlePaste = (e: React.ClipboardEvent) => {
     const paste = e.clipboardData

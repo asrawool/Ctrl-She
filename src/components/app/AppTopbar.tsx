@@ -1,11 +1,9 @@
 import { useState, useEffect } from "react";
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
-  Bell,
   Search,
   Moon,
   Sun,
-  Globe,
   LogOut,
   User,
   Settings as SettingsIcon,
@@ -44,18 +42,6 @@ const LABELS: Record<string, string> = {
   profile: "Profile",
 };
 
-const LANGS = [
-  { c: "en", n: "English" },
-  { c: "hi", n: "हिन्दी" },
-  { c: "mr", n: "मराठी" },
-  { c: "gu", n: "ગુજરાતી" },
-  { c: "ta", n: "தமிழ்" },
-  { c: "te", n: "తెలుగు" },
-  { c: "bn", n: "বাংলা" },
-  { c: "kn", n: "ಕನ್ನಡ" },
-  { c: "pa", n: "ਪੰਜਾਬੀ" },
-];
-
 interface SearchResults {
   documents: { id: string; name: string }[];
   assets: { id: string; name: string }[];
@@ -66,16 +52,7 @@ interface SearchResults {
 }
 
 export function AppTopbar() {
-  const {
-    email,
-    role,
-    customRole,
-    theme,
-    toggleTheme,
-    language,
-    setLanguage,
-    logout,
-  } = useAuth();
+  const { email, role, customRole, theme, toggleTheme, logout } = useAuth();
   const navigate = useNavigate();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [searchOpen, setSearchOpen] = useState(false);
@@ -353,21 +330,6 @@ export function AppTopbar() {
         )}
       </div>
 
-      {/* Language */}
-      <DropdownMenu>
-        <DropdownMenuTrigger className="hidden md:flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted transition">
-          <Globe className="h-4 w-4" /> {language.toUpperCase()}{" "}
-          <ChevronDown className="h-3 w-3" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {LANGS.map((l) => (
-            <DropdownMenuItem key={l.c} onClick={() => setLanguage(l.c)}>
-              {l.n}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
       {/* Theme */}
       <button
         onClick={toggleTheme}
@@ -380,15 +342,6 @@ export function AppTopbar() {
           <Moon className="h-4 w-4" />
         )}
       </button>
-
-      {/* Notifications */}
-      <Link
-        to="/app/notifications"
-        className="relative grid h-9 w-9 place-items-center rounded-lg border border-border hover:bg-muted transition"
-      >
-        <Bell className="h-4 w-4" />
-        <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive" />
-      </Link>
 
       {/* Profile */}
       <DropdownMenu>

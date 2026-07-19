@@ -580,8 +580,8 @@ async function callGemini(
 
   contents.push({ role: "user", parts: currentParts });
 
-  // Use gemini-3.5-flash for fallback to prevent model-not-found errors
-  const modelName = "gemini-3.5-flash";
+  // Use gemini-1.5-flash for fallback to prevent model-not-found errors
+  const modelName = "gemini-1.5-flash";
   const geminiResponse = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`,
     {

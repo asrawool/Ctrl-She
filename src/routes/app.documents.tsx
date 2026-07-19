@@ -55,6 +55,7 @@ interface Doc {
   asset: string;
   version: string;
   updated: string;
+  rawUploadedAt?: string;
   starred?: boolean;
   storagePath?: string;
   processingStatus?: ProcessingStatus;
@@ -219,6 +220,15 @@ function getFileType(fileName: string): string {
 function getFileLabel(fileName: string): string {
   return fileName.split(".").pop()?.toUpperCase() || "FILE";
 }
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 Bytes";
+  const k = 1024;
+  const dm = 2;
+  const sizes = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+}
 const CATEGORIES = [
   "All",
   "Technical Manuals",
@@ -306,6 +316,7 @@ function Documents() {
         updated: row.uploaded_at
           ? new Date(row.uploaded_at).toLocaleDateString()
           : "—",
+        rawUploadedAt: row.uploaded_at || undefined,
         storagePath: row.storage_path,
         processingStatus: (row.status as ProcessingStatus) ?? "pending",
         errorMessage: row.error_message ?? null,
@@ -394,7 +405,28 @@ function Documents() {
 
   const filtered = docs
     .filter((d) => cat === "All" || d.category === cat)
-    .filter((d) => d.name.toLowerCase().includes(q.toLowerCase()));
+    .filter((d) => d.name.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => {
+      if (sort === "size") {
+        return b.size - a.size;
+      }
+      if (sort === "name") {
+        return a.name.localeCompare(b.name);
+      }
+      // sort === "updated" (default): category priority grouping, then date descending
+      const getCategoryIndex = (category: string) => {
+        const idx = CATEGORIES.indexOf(category);
+        return idx <= 0 ? CATEGORIES.length : idx;
+      };
+      const aCatIdx = getCategoryIndex(a.category);
+      const bCatIdx = getCategoryIndex(b.category);
+      if (aCatIdx !== bCatIdx) {
+        return aCatIdx - bCatIdx;
+      }
+      const aTime = a.rawUploadedAt ? new Date(a.rawUploadedAt).getTime() : 0;
+      const bTime = b.rawUploadedAt ? new Date(b.rawUploadedAt).getTime() : 0;
+      return bTime - aTime;
+    });
 
   const handleUpload = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -772,6 +804,7 @@ function Documents() {
                   <th className="text-left px-4 py-2.5 font-semibold">
                     Version
                   </th>
+                  <th className="text-left px-4 py-2.5 font-semibold">Size</th>
                   <th className="text-left px-4 py-2.5 font-semibold">
                     RAG Index
                   </th>
@@ -812,6 +845,9 @@ function Documents() {
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground">
                         {d.version}
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        {formatBytes(d.size)}
                       </td>
                       <td className="px-4 py-2.5">
                         <StatusBadge

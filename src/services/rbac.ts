@@ -199,8 +199,11 @@ export function hasPermission(
   return WRITE_PERMISSIONS[role]?.has(action) ?? false;
 }
 
-export function getActionRequiredRolesLabel(action: OperationalAction): string {
+export function getActionRequiredRolesLabel(
+  action: OperationalAction,
+): string {
   const allowed: string[] = [];
+
   (Object.keys(WRITE_PERMISSIONS) as Role[]).forEach((r) => {
     if (WRITE_PERMISSIONS[r].has(action)) {
       const labels: Record<Role, string> = {
@@ -214,8 +217,10 @@ export function getActionRequiredRolesLabel(action: OperationalAction): string {
         digital_transformation: "Digital Transformation",
         other: "Other",
       };
+
       allowed.push(labels[r]);
     }
   });
+
   return allowed.join(", ");
 }
