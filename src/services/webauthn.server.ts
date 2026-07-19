@@ -69,26 +69,42 @@ function getSupabaseAdminClient() {
   });
 }
 
+function decodeJwtClaims(token: string) {
+  const payload = token.split(".")[1];
+  if (!payload) {
+    throw new Error("Invalid auth token");
+  }
+
+  const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+  const json = atob(padded);
+  return JSON.parse(json) as { sub?: string; email?: string; iat?: number };
+}
+
+function getUserClaims(token: string) {
+  const claims = decodeJwtClaims(token);
+  if (!claims.sub) {
+    throw new Error("Unauthorized: User not found");
+  }
+
+  return {
+    userId: claims.sub,
+    email: claims.email || null,
+    issuedAt: typeof claims.iat === "number" ? claims.iat * 1000 : 0,
+  };
+}
+
 // Check if user has enrolled a face descriptor
 export const hasFaceDescriptorFn = createServerFn({ method: "POST" })
   .validator((d: { token: string }) => d)
   .handler(async ({ data: { token } }) => {
     const supabase = getSupabaseClient(token);
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      throw new Error(
-        "Unauthorized: " + (userError?.message || "User not found"),
-      );
-    }
+    const { userId, issuedAt } = getUserClaims(token);
 
     const { data, error } = await supabase
       .from("face_descriptors")
       .select("user_id")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (error) {
@@ -104,16 +120,7 @@ export const registerFaceDescriptorFn = createServerFn({ method: "POST" })
   .validator((d: { descriptor: number[]; token: string }) => d)
   .handler(async ({ data: { descriptor, token } }) => {
     const supabase = getSupabaseClient(token);
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      throw new Error(
-        "Unauthorized: " + (userError?.message || "User not found"),
-      );
-    }
+    const { userId } = getUserClaims(token);
 
     if (!descriptor || descriptor.length !== 128) {
       throw new Error("Invalid descriptor array length. Expected 128 numbers.");
@@ -121,7 +128,7 @@ export const registerFaceDescriptorFn = createServerFn({ method: "POST" })
 
     // Insert or update descriptor
     const { error } = await supabase.from("face_descriptors").upsert({
-      user_id: user.id,
+      user_id: userId,
       descriptor,
       created_at: new Date().toISOString(),
     });
@@ -134,7 +141,7 @@ export const registerFaceDescriptorFn = createServerFn({ method: "POST" })
     const { error: sessionError } = await supabase
       .from("session_verifications")
       .upsert({
-        user_id: user.id,
+        user_id: userId,
         verified_at: new Date().toISOString(),
       });
 
@@ -153,16 +160,7 @@ export const verifyFaceDescriptorFn = createServerFn({ method: "POST" })
   .validator((d: { descriptors: number[][]; token: string }) => d)
   .handler(async ({ data: { descriptors, token } }) => {
     const supabase = getSupabaseClient(token);
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      throw new Error(
-        "Unauthorized: " + (userError?.message || "User not found"),
-      );
-    }
+    const { userId } = getUserClaims(token);
 
     if (!Array.isArray(descriptors) || descriptors.length < 1) {
       throw new Error(
@@ -184,7 +182,7 @@ export const verifyFaceDescriptorFn = createServerFn({ method: "POST" })
     const { data: storedData, error: fetchError } = await supabase
       .from("face_descriptors")
       .select("descriptor")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .single();
 
     if (fetchError || !storedData) {
@@ -218,7 +216,7 @@ export const verifyFaceDescriptorFn = createServerFn({ method: "POST" })
 
     console.log(
       `[verifyFaceDescriptorFn] Attempted face matching:`,
-      `User ID: ${user.id}`,
+      `User ID: ${userId}`,
       `Sample Distances: ${sampleDistances.map((distance) => distance.toFixed(6)).join(", ")}`,
       `Average Distance: ${averageDistance.toFixed(6)}`,
       `Threshold: ${threshold}`,
@@ -237,7 +235,7 @@ export const verifyFaceDescriptorFn = createServerFn({ method: "POST" })
       const { error: sessionError } = await supabase
         .from("session_verifications")
         .upsert({
-          user_id: user.id,
+          user_id: userId,
           verified_at: new Date().toISOString(),
         });
 
@@ -262,36 +260,25 @@ export const checkSessionVerificationFn = createServerFn({ method: "POST" })
   .validator((d: { token: string }) => d)
   .handler(async ({ data: { token } }) => {
     const supabase = getSupabaseClient(token);
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return { verified: false };
-    }
+    const { userId, issuedAt } = getUserClaims(token);
 
     const { data, error } = await supabase
       .from("session_verifications")
       .select("verified_at")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (error || !data) {
       return { verified: false };
     }
 
-    const lastSignInAt = user.last_sign_in_at
-      ? new Date(user.last_sign_in_at).getTime()
-      : 0;
-
-    if (!lastSignInAt) {
+    if (!issuedAt) {
       return { verified: false };
     }
 
     const verifiedAt = new Date(data.verified_at).getTime();
 
-    if (Number.isNaN(verifiedAt) || verifiedAt < lastSignInAt) {
+    if (Number.isNaN(verifiedAt) || verifiedAt < issuedAt) {
       return { verified: false };
     }
 
@@ -329,21 +316,12 @@ export const getUserRoleFn = createServerFn({ method: "POST" })
   .validator((d: { token: string }) => d)
   .handler(async ({ data: { token } }) => {
     const supabase = getSupabaseClient(token);
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      throw new Error(
-        "Unauthorized: " + (userError?.message || "User not found"),
-      );
-    }
+    const { userId } = getUserClaims(token);
 
     const { data, error } = await supabase
       .from("user_roles")
       .select("role, custom_role")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (error) {
@@ -362,20 +340,11 @@ export const saveUserRoleFn = createServerFn({ method: "POST" })
   .validator((d: { role: Role; customRole?: string; token: string }) => d)
   .handler(async ({ data: { role, customRole, token } }) => {
     const supabase = getSupabaseClient(token);
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      throw new Error(
-        "Unauthorized: " + (userError?.message || "User not found"),
-      );
-    }
+    const { userId } = getUserClaims(token);
 
     // Insert user role (no update policy exists, ensuring role changes are admin-only/future considerations)
     const { error } = await supabase.from("user_roles").insert({
-      user_id: user.id,
+      user_id: userId,
       role,
       custom_role: customRole || null,
       created_at: new Date().toISOString(),
@@ -415,21 +384,12 @@ export const getUserProfileFn = createServerFn({ method: "POST" })
   .validator((d: { token: string }) => d)
   .handler(async ({ data: { token } }) => {
     const supabase = getSupabaseClient(token);
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      throw new Error(
-        "Unauthorized: " + (userError?.message || "User not found"),
-      );
-    }
+    const { userId, email } = getUserClaims(token);
 
     const { data, error } = await supabase
       .from("user_profiles")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (error) {
@@ -438,8 +398,8 @@ export const getUserProfileFn = createServerFn({ method: "POST" })
 
     return {
       profile: data || {
-        user_id: user.id,
-        full_name: user.email?.split("@")[0] || "",
+        user_id: userId,
+        full_name: email?.split("@")[0] || "",
         avatar_url: null,
         department: "Operations",
         plant: "Plant Alpha",
@@ -480,19 +440,10 @@ export const saveUserProfileFn = createServerFn({ method: "POST" })
   )
   .handler(async ({ data: { token, ...profileData } }) => {
     const supabase = getSupabaseClient(token);
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      throw new Error(
-        "Unauthorized: " + (userError?.message || "User not found"),
-      );
-    }
+    const { userId } = getUserClaims(token);
 
     const { error } = await supabase.from("user_profiles").upsert({
-      user_id: user.id,
+      user_id: userId,
       ...profileData,
       updated_at: new Date().toISOString(),
     });

@@ -267,13 +267,13 @@ ${liveStateContext}`;
     let answer = "";
     let providerUsed = "";
 
-    // 6. Invoke LLM (OpenRouter as primary, Gemini/Groq as fallbacks)
-    if (openRouterApiKey && !forceFallback) {
+    // 6. Invoke LLM (OpenRouter first whenever available)
+    if (openRouterApiKey) {
       try {
         debugLogs.push("Routing request to OpenRouter (primary)...");
         const model = hasImages
           ? "nvidia/nemotron-nano-12b-v2-vl:free"
-          : "meta-llama/llama-3.3-70b-instruct:free";
+          : "openai/gpt-oss-20b:free";
         debugLogs.push(`Model selected: ${model}`);
 
         const messages: any[] = [];
@@ -363,66 +363,8 @@ ${systemPrompt}`;
       } catch (err) {
         const error = err as Error;
         debugLogs.push(`OpenRouter failed: ${error.message}`);
-        if (geminiApiKey) {
-          debugLogs.push("Routing request to Gemini (fallback)...");
-          try {
-            answer = await callGemini(
-              geminiApiKey,
-              history,
-              question,
-              imageAttachments,
-              hasImages,
-              systemPrompt,
-            );
-            providerUsed = "Gemini (Fallback)";
-          } catch (geminiErr) {
-            const gError = geminiErr as Error;
-            debugLogs.push(`Gemini fallback failed: ${gError.message}`);
-            if (groqApiKey) {
-              debugLogs.push("Routing request to Groq (fallback)...");
-              try {
-                answer = await callGroq(
-                  groqApiKey,
-                  history,
-                  question,
-                  imageAttachments,
-                  hasImages,
-                  systemPrompt,
-                );
-                providerUsed = "Groq (Fallback)";
-              } catch (groqErr) {
-                const grError = groqErr as Error;
-                debugLogs.push(`Groq fallback failed: ${grError.message}`);
-                answer = `The AI Copilot is temporarily rate-limited or unavailable. (Details: OpenRouter: ${error.message}, Gemini: ${gError.message}, Groq: ${grError.message})`;
-                providerUsed = "None (Error Fallback)";
-              }
-            } else {
-              answer = `The AI Copilot is temporarily rate-limited or unavailable. (Details: OpenRouter: ${error.message}, Gemini: ${gError.message})`;
-              providerUsed = "None (Error Fallback)";
-            }
-          }
-        } else if (groqApiKey) {
-          debugLogs.push("Routing request to Groq (fallback)...");
-          try {
-            answer = await callGroq(
-              groqApiKey,
-              history,
-              question,
-              imageAttachments,
-              hasImages,
-              systemPrompt,
-            );
-            providerUsed = "Groq (Fallback)";
-          } catch (groqErr) {
-            const grError = groqErr as Error;
-            debugLogs.push(`Groq fallback failed: ${grError.message}`);
-            answer = `The AI Copilot is temporarily rate-limited or unavailable. (Details: OpenRouter: ${error.message}, Groq: ${grError.message})`;
-            providerUsed = "None (Error Fallback)";
-          }
-        } else {
-          answer = `The AI Copilot is temporarily rate-limited or unavailable. (Details: OpenRouter: ${error.message})`;
-          providerUsed = "None (Error Fallback)";
-        }
+        answer = `The OpenRouter Copilot is temporarily unavailable. (Detail: ${error.message})`;
+        providerUsed = "None (Error Fallback)";
       }
     } else if (geminiApiKey) {
       debugLogs.push(
