@@ -21,6 +21,7 @@ import { Route as AuthFaceRouteImport } from './routes/auth.face'
 import { Route as AppSettingsRouteImport } from './routes/app.settings'
 import { Route as AppQualityRouteImport } from './routes/app.quality'
 import { Route as AppProfileRouteImport } from './routes/app.profile'
+import { Route as AppProcurementRouteImport } from './routes/app.procurement'
 import { Route as AppNotificationsRouteImport } from './routes/app.notifications'
 import { Route as AppMaintenanceRouteImport } from './routes/app.maintenance'
 import { Route as AppLessonsRouteImport } from './routes/app.lessons'
@@ -92,6 +93,11 @@ const AppQualityRoute = AppQualityRouteImport.update({
 const AppProfileRoute = AppProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProcurementRoute = AppProcurementRouteImport.update({
+  id: '/procurement',
+  path: '/procurement',
   getParentRoute: () => AppRoute,
 } as any)
 const AppNotificationsRoute = AppNotificationsRouteImport.update({
@@ -173,6 +179,7 @@ export interface FileRoutesByFullPath {
   '/app/lessons': typeof AppLessonsRoute
   '/app/maintenance': typeof AppMaintenanceRoute
   '/app/notifications': typeof AppNotificationsRoute
+  '/app/procurement': typeof AppProcurementRoute
   '/app/profile': typeof AppProfileRoute
   '/app/quality': typeof AppQualityRoute
   '/app/settings': typeof AppSettingsRoute
@@ -199,6 +206,7 @@ export interface FileRoutesByTo {
   '/app/lessons': typeof AppLessonsRoute
   '/app/maintenance': typeof AppMaintenanceRoute
   '/app/notifications': typeof AppNotificationsRoute
+  '/app/procurement': typeof AppProcurementRoute
   '/app/profile': typeof AppProfileRoute
   '/app/quality': typeof AppQualityRoute
   '/app/settings': typeof AppSettingsRoute
@@ -226,6 +234,7 @@ export interface FileRoutesById {
   '/app/lessons': typeof AppLessonsRoute
   '/app/maintenance': typeof AppMaintenanceRoute
   '/app/notifications': typeof AppNotificationsRoute
+  '/app/procurement': typeof AppProcurementRoute
   '/app/profile': typeof AppProfileRoute
   '/app/quality': typeof AppQualityRoute
   '/app/settings': typeof AppSettingsRoute
@@ -254,6 +263,7 @@ export interface FileRouteTypes {
     | '/app/lessons'
     | '/app/maintenance'
     | '/app/notifications'
+    | '/app/procurement'
     | '/app/profile'
     | '/app/quality'
     | '/app/settings'
@@ -280,6 +290,7 @@ export interface FileRouteTypes {
     | '/app/lessons'
     | '/app/maintenance'
     | '/app/notifications'
+    | '/app/procurement'
     | '/app/profile'
     | '/app/quality'
     | '/app/settings'
@@ -306,6 +317,7 @@ export interface FileRouteTypes {
     | '/app/lessons'
     | '/app/maintenance'
     | '/app/notifications'
+    | '/app/procurement'
     | '/app/profile'
     | '/app/quality'
     | '/app/settings'
@@ -409,6 +421,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProfileRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/procurement': {
+      id: '/app/procurement'
+      path: '/procurement'
+      fullPath: '/app/procurement'
+      preLoaderRoute: typeof AppProcurementRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/notifications': {
       id: '/app/notifications'
       path: '/notifications'
@@ -509,6 +528,7 @@ interface AppRouteChildren {
   AppLessonsRoute: typeof AppLessonsRoute
   AppMaintenanceRoute: typeof AppMaintenanceRoute
   AppNotificationsRoute: typeof AppNotificationsRoute
+  AppProcurementRoute: typeof AppProcurementRoute
   AppProfileRoute: typeof AppProfileRoute
   AppQualityRoute: typeof AppQualityRoute
   AppSettingsRoute: typeof AppSettingsRoute
@@ -527,6 +547,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppLessonsRoute: AppLessonsRoute,
   AppMaintenanceRoute: AppMaintenanceRoute,
   AppNotificationsRoute: AppNotificationsRoute,
+  AppProcurementRoute: AppProcurementRoute,
   AppProfileRoute: AppProfileRoute,
   AppQualityRoute: AppQualityRoute,
   AppSettingsRoute: AppSettingsRoute,
