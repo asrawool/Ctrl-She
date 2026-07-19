@@ -74,6 +74,17 @@ export interface Inspection {
   scheduled_date: string;
   status: string;
   assigned_to?: string;
+  created_by?: string;
+  completed_at?: string;
+}
+
+export interface Reminder {
+  id: string;
+  user_id: string;
+  description: string;
+  due_at: string;
+  is_notified: boolean;
+  created_at: string;
 }
 
 export interface InsurancePolicy {

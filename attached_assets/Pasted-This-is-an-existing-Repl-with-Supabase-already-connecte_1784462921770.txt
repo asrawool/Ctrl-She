@@ -1,0 +1,55 @@
+This is an existing Repl with Supabase already connected as the backend. Do NOT create a new backend, do NOT reconnect or reconfigure Supabase — use the existing connection exactly as configured in the project.
+
+TEAMMATE NOTE: Someone else is working in parallel in a separate Repl/session on: Auth OTP/Face ID flows, the Documents page, the RAG ingestion pipeline, and top bar cleanup. Do not touch auth routes, the Documents page, supabase/functions/process-document, or the top bar component. If a fix seems to require touching those, stop and ask me first.
+
+GLOBAL RULE: No UI/visual/styling/layout changes anywhere except items 3, 5, and 11 below. Don't restyle, redesign, or "improve" anything not explicitly listed. Don't touch any file, table, route, or component not required by the specific item you're working on.
+
+ROLE ACCESS — DO NOT TOUCH: Do not modify rbac.ts's PERMISSIONS or WRITE_PERMISSIONS dictionaries, and do not modify any RLS policy tied to roles — EXCEPT item 14, which requires ADDING new permission entries for a brand-new module. That's an addition, not a modification of any existing entry, and is fine. If any other item seems to need a role-access change, STOP and ask.
+
+Work through the items below IN ORDER. Items marked "INVESTIGATE FIRST" — report your findings and proposed approach before writing any code for that item.
+
+3. "Schedule Compliance Inspection" modal — multi-assignee + custom framework
+   a) "Assigned Inspector" must support multiple people (tag/chip input, comma-separated, or multi-select — your call, as long as multiple assignees work).
+   b) When scheduled, every assigned person gets a notification with: inspection title, framework, scheduled date/time. Use the existing in-app notification system, don't build a new one.
+   c) "Framework" dropdown must also accept free-text entry for custom framework names not in the list — searchable/creatable combobox, existing options still work.
+   Implement only what's described, don't restyle the rest of the modal.
+
+5. Dashboard maintenance calendar — broken
+   a) Default view: 1 week at a time, not full month.
+   b) Show a dot/indicator on days with a manually logged work entry (see d).
+   c) Clicking the widget should open the full calendar view — the click handler is currently broken/missing, fix it.
+   d) In full calendar view, user can manually add a reminder/task: description + due date/time.
+   e) User gets a notification (existing system) when a reminder's due time is reached or approaching — use existing lead-time convention elsewhere in the app if one exists, otherwise default to "at due time" and note your choice.
+   INVESTIGATE FIRST: check if any calendar/reminder data model already exists (even partially) before building new. Report findings.
+
+11. Knowledge Graph — broken
+   a) Nodes shake/jitter on hover — likely a force-simulation bug (re-heating or conflicting forces on hover). Investigate the rendering approach, fix the instability.
+   b) Nodes are laid out in a straight line, ignoring actual relationships. Fix so layout is genuinely relationship-aware — connected nodes cluster near each other based on real edge data, not insertion order.
+
+12. Quality & Compliance — inspection assignment feedback loop
+   a) The person who assigned an inspection should get notified when its status changes (especially when marked complete).
+   b) The assigner's view should show Pending vs Completed status for inspections they assigned, so they can manually nudge assignees on pending ones.
+   c) Add "Pending Inspections" and "Completed Inspections" count cards to the assigner's view.
+   d) RECOMMENDED (do this unless told otherwise): if an inspection's due date passes uncompleted, mark it "Overdue" (a third state beyond Pending/Completed) and send an escalation notification to both assignee and assigner. Add a simple trend chart (on Quality & Compliance or Analytics) showing on-time completion rate over time alongside NCR count over the same period.
+
+14. NEW MODULE: Procurement & Compliance Workflow
+This is a new feature, not a bug fix. INVESTIGATE FIRST: review current schema (assets, work_orders, insurance_policies, etc.) and existing page structure, propose a plan (route name, table schema, link to `assets`) before building. Report the plan for my approval before implementing.
+Once approved, build:
+   - Purchase Request entity: item details, quantity, priority, justification, supporting documents, status (Pending / Approved / Rejected / Modification Requested / Procured).
+   - Maintenance Engineer: can create purchase requests for assets/spare parts. Read/create only — cannot approve.
+   - Plant Manager: can review, approve, reject, or request modification on any request. Approved requests move to "Procured."
+   - After "Procured": the resulting asset should be linkable to a new or existing `assets` row (installation step). Safety Officer then manages that asset's compliance records (insurance, licenses, calibration certs) using the EXISTING Insurance & Certs functionality — don't duplicate it.
+   - Reliability Engineer: can use maintenance history, inspections, NCRs, and compliance records tied to an asset for RCA — this likely already exists via the current RCA feature, connect to procurement-sourced assets rather than rebuilding.
+   - Digital Transformation Manager: read-only access to procurement status, compliance KPIs, dashboards, analytics for this module (matches their existing read-only pattern elsewhere).
+   - Add NEW permission entries (module access + write permissions) for the roles above — net-new module, so this doesn't modify any existing matrix entry. Don't alter any existing entry while adding these.
+
+16a. Final check
+Confirm every item above (3, 5, 11, 12, 14) is fully and correctly implemented — nothing partially done.
+
+FINAL CONSTRAINTS:
+- Only implement items 3, 5, 11, 12, 14, 16a — nothing else.
+- No role/permission changes except the net-new addition in item 14.
+- No visual changes except items 3, 5, 11.
+- If anything's ambiguous, stop and ask — especially INVESTIGATE FIRST items and item 14's plan approval.
+- Run typecheck, lint, and build after each item; all must pass before moving on.
+- When done, report status item-by-item, flag anything incomplete or needing my decision.

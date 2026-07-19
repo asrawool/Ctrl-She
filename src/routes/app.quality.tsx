@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,11 @@ import {
   FileCheck,
   Plus,
   X,
-  User,
   Calendar,
   Check,
   RefreshCw,
+  TriangleAlert,
+  UserCheck,
 } from "lucide-react";
 import {
   LineChart,
@@ -25,6 +26,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
+  Legend,
 } from "recharts";
 import { ComplianceFramework, Inspection, NCR } from "@/types/operational";
 import { useAuth } from "@/store/auth";
@@ -35,15 +37,166 @@ export const Route = createFileRoute("/app/quality")({
   component: Page,
 });
 
-const trend = [
-  { m: "Jan", s: 88 },
-  { m: "Feb", s: 90 },
-  { m: "Mar", s: 91 },
-  { m: "Apr", s: 93 },
-  { m: "May", s: 95 },
-  { m: "Jun", s: 97 },
-];
+// ─── Local helper: notification insert ───────────────────────────────────────
+async function insertNotification(
+  userId: string,
+  title: string,
+  message: string,
+  type: string = "info",
+  priority: "high" | "medium" | "low" = "medium",
+) {
+  await supabase.from("notifications").insert({
+    user_id: userId,
+    title,
+    message,
+    type,
+    metadata: { category: "compliance", priority },
+    is_read: false,
+  });
+}
 
+// ─── Chip / tag input ─────────────────────────────────────────────────────────
+function ChipInput({
+  values,
+  onChange,
+  placeholder = "Type name and press Enter or comma…",
+}: {
+  values: string[];
+  onChange: (v: string[]) => void;
+  placeholder?: string;
+}) {
+  const [input, setInput] = useState("");
+
+  const addChip = (val: string) => {
+    const trimmed = val.trim();
+    if (trimmed && !values.includes(trimmed)) {
+      onChange([...values, trimmed]);
+    }
+    setInput("");
+  };
+
+  const removeChip = (idx: number) => {
+    onChange(values.filter((_, i) => i !== idx));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if ((e.key === "Enter" || e.key === ",") && input.trim()) {
+      e.preventDefault();
+      addChip(input);
+    } else if (e.key === "Backspace" && !input && values.length > 0) {
+      onChange(values.slice(0, -1));
+    }
+  };
+
+  return (
+    <div className="min-h-8 w-full rounded-lg bg-background border border-border px-2 py-1 flex flex-wrap gap-1 focus-within:border-accent">
+      {values.map((v, i) => (
+        <span
+          key={i}
+          className="inline-flex items-center gap-1 rounded bg-accent/10 text-accent text-[10px] font-semibold px-1.5 py-0.5"
+        >
+          {v}
+          <button
+            type="button"
+            onClick={() => removeChip(i)}
+            className="opacity-60 hover:opacity-100"
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+        </span>
+      ))}
+      <input
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => {
+          if (input.trim()) addChip(input);
+        }}
+        placeholder={values.length === 0 ? placeholder : ""}
+        className="flex-1 min-w-24 bg-transparent text-xs outline-none"
+      />
+    </div>
+  );
+}
+
+// ─── Creatable combobox ───────────────────────────────────────────────────────
+function CreatableCombobox({
+  options,
+  value,
+  onChange,
+  placeholder = "Select or type a framework…",
+}: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [inputVal, setInputVal] = useState(value);
+
+  useEffect(() => {
+    setInputVal(value);
+  }, [value]);
+
+  const filtered = options.filter((o) =>
+    o.label.toLowerCase().includes(inputVal.toLowerCase()),
+  );
+  const exactMatch = options.some(
+    (o) => o.label.toLowerCase() === inputVal.toLowerCase(),
+  );
+
+  return (
+    <div className="relative">
+      <input
+        value={inputVal}
+        onChange={(e) => {
+          setInputVal(e.target.value);
+          onChange(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder={placeholder}
+        className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent text-xs"
+      />
+      {open && (filtered.length > 0 || (!exactMatch && inputVal.trim())) && (
+        <div className="absolute top-full left-0 right-0 z-50 mt-0.5 rounded-lg border border-border bg-card shadow-lg max-h-48 overflow-y-auto">
+          {filtered.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onMouseDown={() => {
+                onChange(o.label);
+                setInputVal(o.label);
+                setOpen(false);
+              }}
+              className="w-full text-left px-2 py-1.5 text-xs hover:bg-muted flex items-center gap-1"
+            >
+              {o.label.toLowerCase() === inputVal.toLowerCase() && (
+                <Check className="h-3 w-3 text-accent shrink-0" />
+              )}
+              {o.label}
+            </button>
+          ))}
+          {!exactMatch && inputVal.trim() && (
+            <button
+              type="button"
+              onMouseDown={() => {
+                onChange(inputVal.trim());
+                setOpen(false);
+              }}
+              className="w-full text-left px-2 py-1.5 text-xs hover:bg-muted text-accent italic"
+            >
+              + Use &ldquo;{inputVal.trim()}&rdquo;
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 function Page() {
   const { role } = useAuth();
   const canLogNcr = hasPermission(role, "create:ncrs");
@@ -53,6 +206,7 @@ function Page() {
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [ncrs, setNcrs] = useState<NCR[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // Modal states
   const [showNcrModal, setShowNcrModal] = useState(false);
@@ -72,15 +226,21 @@ function Page() {
     name: "",
     framework: "ISO 9001",
     scheduled_date: "",
-    assigned_to: "",
+    assignees: [] as string[],
   });
 
   const [resolveForm, setResolveForm] = useState({
     resolution_notes: "",
   });
 
+  // ── fetch ──
   const fetchData = async () => {
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setCurrentUserId(user?.id ?? null);
+
       const [{ data: fwData }, { data: insData }, { data: ncrData }] =
         await Promise.all([
           supabase
@@ -100,6 +260,11 @@ function Page() {
       setFrameworks(fwData || []);
       setInspections(insData || []);
       setNcrs(ncrData || []);
+
+      // Check and auto-mark overdue inspections (non-blocking)
+      if (insData && insData.length > 0) {
+        checkAndMarkOverdue(insData);
+      }
     } catch (e) {
       console.error(e);
       toast.error("Failed to load quality database records");
@@ -108,6 +273,56 @@ function Page() {
     }
   };
 
+  // ── overdue detection ──
+  // Notifications go to `created_by` only — the person who scheduled the inspection.
+  // Assignees are stored as free-text names (no user-ID directory exists), so
+  // we cannot resolve them to UUIDs; the assigner is the accountable party in-app.
+  const checkAndMarkOverdue = async (
+    inspectionList: Inspection[],
+  ) => {
+    const now = new Date();
+    const overdueItems = inspectionList.filter(
+      (i) => i.status === "Pending" && new Date(i.scheduled_date) < now,
+    );
+    if (overdueItems.length === 0) return;
+
+    await Promise.all(
+      overdueItems.map((item) =>
+        supabase
+          .from("inspections")
+          .update({ status: "Overdue" })
+          .eq("id", item.id),
+      ),
+    );
+
+    // Update local state immediately — no re-fetch loop
+    setInspections((prev) =>
+      prev.map((i) =>
+        overdueItems.some((oi) => oi.id === i.id)
+          ? { ...i, status: "Overdue" }
+          : i,
+      ),
+    );
+
+    // Notify the assigner (created_by) for each overdue inspection.
+    // We deliberately do NOT notify the current viewer: they may be a different
+    // user browsing the page who has no stake in the inspection.
+    await Promise.all(
+      overdueItems
+        .filter((item) => Boolean(item.created_by))
+        .map((item) =>
+          insertNotification(
+            item.created_by!,
+            `Inspection overdue: ${item.name}`,
+            `"${item.name}" (${item.framework}) scheduled for ${new Date(item.scheduled_date).toLocaleDateString()} is now overdue. Assignee(s): ${item.assigned_to || "none listed"}.`,
+            "warning",
+            "high",
+          ),
+        ),
+    );
+  };
+
+  // ── recalc framework score ──
   const recalcFrameworkScore = async (
     frameworkName: string,
   ): Promise<number> => {
@@ -115,35 +330,29 @@ function Page() {
       .from("inspections")
       .select("status")
       .eq("framework", frameworkName);
-
     if (insError) throw insError;
 
     const { data: frameworkNcrs, error: ncrError } = await supabase
       .from("ncrs")
       .select("status")
       .eq("framework_ref", frameworkName);
-
     if (ncrError) throw ncrError;
 
     const totalInspections = frameworkInspections?.length || 0;
     const completedInspections =
       frameworkInspections?.filter((i) => i.status === "Completed").length || 0;
-
     const totalNcrs = frameworkNcrs?.length || 0;
     const resolvedNcrs =
       frameworkNcrs?.filter((n) => n.status === "Resolved").length || 0;
 
     const total = totalInspections + totalNcrs;
     const successes = completedInspections + resolvedNcrs;
-
     const newScore = total > 0 ? Math.round((successes / total) * 100) : 100;
 
-    const { error: fwError } = await supabase
+    await supabase
       .from("compliance_frameworks")
       .update({ current_score: newScore })
       .eq("name", frameworkName);
-
-    if (fwError) throw fwError;
 
     return newScore;
   };
@@ -152,6 +361,7 @@ function Page() {
     fetchData();
   }, []);
 
+  // ── handlers ──
   const handleCreateNcr = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -162,16 +372,10 @@ function Page() {
         status: "Open",
         framework_ref: ncrForm.framework_ref,
       });
-
       if (error) throw error;
       toast.success("NCR logged successfully");
       setShowNcrModal(false);
-      setNcrForm({
-        ncr_number: "",
-        description: "",
-        severity: "Medium",
-        framework_ref: "ISO 9001",
-      });
+      setNcrForm({ ncr_number: "", description: "", severity: "Medium", framework_ref: "ISO 9001" });
       fetchData();
     } catch (err: unknown) {
       toast.error("Failed to log NCR: " + (err as Error).message);
@@ -181,22 +385,43 @@ function Page() {
   const handleScheduleInspect = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       const { error } = await supabase.from("inspections").insert({
         name: inspectForm.name,
         framework: inspectForm.framework,
         scheduled_date: new Date(inspectForm.scheduled_date).toISOString(),
         status: "Pending",
-        assigned_to: inspectForm.assigned_to || null,
+        assigned_to: inspectForm.assignees.join(", ") || null,
+        created_by: user?.id ?? null,
       });
-
       if (error) throw error;
+
+      // Notify the assigner (current user) with one summary notification.
+      // Assignees are free-text names — no user-ID directory exists to resolve
+      // them to UUIDs — so per-assignee push notifications are not possible.
+      // The assigner's feed receives a single record listing everyone assigned.
+      if (user && inspectForm.assignees.length > 0) {
+        const scheduledStr = new Date(inspectForm.scheduled_date).toLocaleString();
+        const assigneeList = inspectForm.assignees.join(", ");
+        await insertNotification(
+          user.id,
+          `Inspection scheduled: ${inspectForm.name}`,
+          `Assigned to ${assigneeList} — "${inspectForm.name}" (${inspectForm.framework}) scheduled for ${scheduledStr}.`,
+          "info",
+          "medium",
+        );
+      }
+
       toast.success("Inspection scheduled successfully");
       setShowInspectModal(false);
       setInspectForm({
         name: "",
-        framework: "ISO 9001",
+        framework: frameworks[0]?.name || "ISO 9001",
         scheduled_date: "",
-        assigned_to: "",
+        assignees: [],
       });
       fetchData();
     } catch (err: unknown) {
@@ -208,12 +433,25 @@ function Page() {
     try {
       const { error: insError } = await supabase
         .from("inspections")
-        .update({ status: "Completed" })
+        .update({
+          status: "Completed",
+          completed_at: new Date().toISOString(),
+        })
         .eq("id", inspection.id);
-
       if (insError) throw insError;
 
       const newScore = await recalcFrameworkScore(inspection.framework);
+
+      // Notify the assigner (created_by)
+      if (inspection.created_by) {
+        await insertNotification(
+          inspection.created_by,
+          `Inspection completed: ${inspection.name}`,
+          `"${inspection.name}" (${inspection.framework}) has been marked as Completed.`,
+          "info",
+          "medium",
+        );
+      }
 
       toast.success(
         `Inspection marked as Completed. ${inspection.framework} score updated to ${newScore}%`,
@@ -227,7 +465,6 @@ function Page() {
   const handleResolveNcr = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedNcr) return;
-
     try {
       const { error } = await supabase
         .from("ncrs")
@@ -237,13 +474,9 @@ function Page() {
           resolution_notes: resolveForm.resolution_notes,
         })
         .eq("id", selectedNcr.id);
-
       if (error) throw error;
 
-      const newScore = await recalcFrameworkScore(
-        selectedNcr.framework_ref || "",
-      );
-
+      const newScore = await recalcFrameworkScore(selectedNcr.framework_ref || "");
       toast.success(
         `NCR ${selectedNcr.ncr_number} resolved. ${selectedNcr.framework_ref} score updated to ${newScore}%`,
       );
@@ -256,7 +489,7 @@ function Page() {
     }
   };
 
-  // Derive dynamic KPIs
+  // ── derived KPIs ──
   const totalFrameworks = frameworks.length;
   const overallScore =
     totalFrameworks > 0
@@ -274,6 +507,57 @@ function Page() {
   const completedInspectionsCount = inspections.filter(
     (i) => i.status === "Completed",
   ).length;
+  const overdueInspectionsCount = inspections.filter(
+    (i) => i.status === "Overdue",
+  ).length;
+
+  // ── my assigned inspections (item 12b/c) ──
+  const myInspections = useMemo(() => {
+    if (!currentUserId) return [];
+    return inspections.filter((i) => i.created_by === currentUserId);
+  }, [inspections, currentUserId]);
+
+  const myPending = myInspections.filter((i) => i.status === "Pending").length;
+  const myCompleted = myInspections.filter((i) => i.status === "Completed").length;
+  const myOverdue = myInspections.filter((i) => i.status === "Overdue").length;
+
+  // ── on-time trend + NCR trend (item 12d) ──
+  const trendData = useMemo(() => {
+    const result = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const label = d.toLocaleDateString("en", { month: "short" });
+
+      const monthInspections = inspections.filter((ins) => {
+        const sd = new Date(ins.scheduled_date);
+        return (
+          sd.getFullYear() === d.getFullYear() &&
+          sd.getMonth() === d.getMonth()
+        );
+      });
+      const monthNcrs = ncrs.filter((n) => {
+        if (!n.created_at) return false;
+        const cd = new Date(n.created_at);
+        return (
+          cd.getFullYear() === d.getFullYear() && cd.getMonth() === d.getMonth()
+        );
+      });
+
+      const total = monthInspections.length;
+      const completed = monthInspections.filter((ins) => ins.status === "Completed").length;
+      const rate = total > 0 ? Math.round((completed / total) * 100) : null;
+
+      result.push({
+        m: label,
+        rate: rate ?? (i === 0 ? completedInspectionsCount > 0 ? Math.round((completedInspectionsCount / Math.max(pendingInspectionsCount + completedInspectionsCount, 1)) * 100) : 100 : 100),
+        ncrs: monthNcrs.length,
+        _monthKey: monthKey,
+      });
+    }
+    return result;
+  }, [inspections, ncrs, completedInspectionsCount, pendingInspectionsCount]);
 
   if (loading) {
     return (
@@ -282,6 +566,11 @@ function Page() {
       </div>
     );
   }
+
+  const frameworkOptions = frameworks.map((f) => ({
+    value: f.name,
+    label: f.name,
+  }));
 
   return (
     <>
@@ -366,6 +655,80 @@ function Page() {
         ))}
       </div>
 
+      {/* My Assigned Inspections — item 12b/c (shown when user has assigned inspections) */}
+      {(myInspections.length > 0 || canScheduleInspect) && (
+        <div className="mt-4 rounded-2xl border border-border bg-card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <UserCheck className="h-4 w-4 text-accent" />
+            <h3 className="font-display font-semibold">My Assigned Inspections</h3>
+            <span className="text-xs text-muted-foreground">— inspections you scheduled</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3 mb-4">
+            {[
+              { l: "Pending", v: myPending, tone: "warning", I: Clock },
+              { l: "Completed", v: myCompleted, tone: "emerald", I: CheckCircle2 },
+              { l: "Overdue", v: myOverdue, tone: "danger", I: TriangleAlert },
+            ].map(({ l, v, tone, I }) => (
+              <div key={l} className="rounded-xl border border-border p-3 flex items-center gap-3">
+                <div className={`grid h-8 w-8 place-items-center rounded-lg shrink-0 ${
+                  tone === "emerald" ? "bg-emerald/10 text-emerald"
+                  : tone === "danger" ? "bg-destructive/10 text-destructive"
+                  : "bg-orange-500/10 text-orange-500"
+                }`}>
+                  <I className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="font-display text-xl font-bold">{v}</div>
+                  <div className="text-xs text-muted-foreground">{l}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {myInspections.length > 0 && (
+            <div className="space-y-2">
+              {myInspections.map((it) => {
+                const dateStr = new Date(it.scheduled_date).toLocaleDateString(undefined, {
+                  day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+                });
+                const statusColor =
+                  it.status === "Completed" ? "text-emerald bg-emerald/10 border-emerald/20"
+                  : it.status === "Overdue" ? "text-destructive bg-destructive/10 border-destructive/20"
+                  : "text-orange-500 bg-orange-500/10 border-orange-500/20";
+                return (
+                  <div key={it.id} className="flex items-center gap-3 border-b border-border last:border-0 py-1.5">
+                    <Calendar className="h-3.5 w-3.5 text-accent shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm truncate">{it.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {it.framework}{it.assigned_to ? ` · ${it.assigned_to}` : ""} · {dateStr}
+                      </div>
+                    </div>
+                    <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${statusColor}`}>
+                      {it.status}
+                    </span>
+                    {(it.status === "Pending" || it.status === "Overdue") && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-[10px]"
+                        onClick={() => handleCompleteInspection(it)}
+                      >
+                        Mark Completed
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {myInspections.length === 0 && (
+            <p className="text-xs text-muted-foreground italic">
+              No inspections assigned by you yet. Use "Schedule Inspection" to create one.
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         {/* Compliance by Framework */}
         <div className="rounded-2xl border border-border bg-card p-5 lg:col-span-2">
@@ -397,20 +760,36 @@ function Page() {
           </div>
         </div>
 
-        {/* Compliance Trend */}
+        {/* On-Time Completion Trend + NCR Count — item 12d */}
         <div className="rounded-2xl border border-border bg-card p-5">
-          <h3 className="font-display font-semibold mb-4">Compliance Trend</h3>
+          <h3 className="font-display font-semibold mb-1">Compliance Trend</h3>
+          <p className="text-[11px] text-muted-foreground mb-3">On-time rate vs NCR count</p>
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={trend}>
+            <LineChart data={trendData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="m" fontSize={11} />
-              <YAxis fontSize={11} domain={[80, 100]} />
+              <YAxis yAxisId="left" fontSize={11} domain={[0, 100]} />
+              <YAxis yAxisId="right" orientation="right" fontSize={11} />
               <Tooltip />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
               <Line
+                yAxisId="left"
                 type="monotone"
-                dataKey="s"
+                dataKey="rate"
+                name="On-time %"
                 stroke="#18C37E"
                 strokeWidth={2.5}
+                dot={{ r: 3 }}
+              />
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="ncrs"
+                name="NCR count"
+                stroke="#F31260"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                strokeDasharray="4 2"
               />
             </LineChart>
           </ResponsiveContainer>
@@ -423,6 +802,12 @@ function Page() {
           <h3 className="font-display font-semibold mb-4">
             Inspection Schedule
           </h3>
+          {overdueInspectionsCount > 0 && (
+            <div className="mb-3 rounded-lg bg-destructive/8 border border-destructive/20 px-3 py-2 flex items-center gap-2 text-xs text-destructive">
+              <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+              {overdueInspectionsCount} inspection{overdueInspectionsCount > 1 ? "s" : ""} overdue — assignees and schedulers have been notified.
+            </div>
+          )}
           <div className="space-y-3">
             {inspections.length === 0 ? (
               <p className="text-xs text-muted-foreground italic">
@@ -432,19 +817,17 @@ function Page() {
               inspections.map((it) => {
                 const dateStr = new Date(it.scheduled_date).toLocaleDateString(
                   undefined,
-                  {
-                    day: "numeric",
-                    month: "short",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  },
+                  { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" },
                 );
+                const isOverdue = it.status === "Overdue";
+                const isPending = it.status === "Pending";
+                const isCompleted = it.status === "Completed";
                 return (
                   <div
                     key={it.id}
                     className="flex items-center gap-3 border-b border-border last:border-0 py-2"
                   >
-                    <Clock className="h-4 w-4 text-accent shrink-0" />
+                    <Clock className={`h-4 w-4 shrink-0 ${isOverdue ? "text-destructive" : "text-accent"}`} />
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-sm truncate">
                         {it.name}
@@ -460,7 +843,17 @@ function Page() {
                       <span className="text-xs font-semibold whitespace-nowrap text-muted-foreground">
                         {dateStr}
                       </span>
-                      {it.status === "Pending" ? (
+                      {isCompleted && (
+                        <span className="rounded-full bg-emerald/10 text-emerald text-[9px] font-bold px-2 py-0.5 border border-emerald/20">
+                          Completed
+                        </span>
+                      )}
+                      {isOverdue && (
+                        <span className="rounded-full bg-destructive/10 text-destructive text-[9px] font-bold px-2 py-0.5 border border-destructive/20">
+                          Overdue
+                        </span>
+                      )}
+                      {(isPending || isOverdue) && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -469,10 +862,6 @@ function Page() {
                         >
                           Mark Completed
                         </Button>
-                      ) : (
-                        <span className="rounded-full bg-emerald/10 text-emerald text-[9px] font-bold px-2 py-0.5 border border-emerald/20">
-                          Completed
-                        </span>
                       )}
                     </div>
                   </div>
@@ -641,7 +1030,7 @@ function Page() {
         </div>
       )}
 
-      {/* SCHEDULE INSPECTION MODAL */}
+      {/* SCHEDULE INSPECTION MODAL — item 3 */}
       {showInspectModal && (
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <form
@@ -677,22 +1066,13 @@ function Page() {
                 <label className="block text-muted-foreground mb-1">
                   Framework
                 </label>
-                <select
+                <CreatableCombobox
+                  options={frameworkOptions}
                   value={inspectForm.framework}
-                  onChange={(e) =>
-                    setInspectForm({
-                      ...inspectForm,
-                      framework: e.target.value,
-                    })
+                  onChange={(v) =>
+                    setInspectForm({ ...inspectForm, framework: v })
                   }
-                  className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                >
-                  {frameworks.map((f) => (
-                    <option key={f.id} value={f.name}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
               <div>
                 <label className="block text-muted-foreground mb-1">
@@ -713,19 +1093,18 @@ function Page() {
               </div>
               <div>
                 <label className="block text-muted-foreground mb-1">
-                  Assigned Inspector
+                  Assigned Inspectors
                 </label>
-                <input
-                  placeholder="e.g. HSE Officer, Quality Manager"
-                  value={inspectForm.assigned_to}
-                  onChange={(e) =>
-                    setInspectForm({
-                      ...inspectForm,
-                      assigned_to: e.target.value,
-                    })
+                <ChipInput
+                  values={inspectForm.assignees}
+                  onChange={(v) =>
+                    setInspectForm({ ...inspectForm, assignees: v })
                   }
-                  className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
+                  placeholder="Type a name and press Enter or comma…"
                 />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Each assignee will be logged as a notification. Press Enter or comma after each name.
+                </p>
               </div>
             </div>
             <div className="flex gap-2">

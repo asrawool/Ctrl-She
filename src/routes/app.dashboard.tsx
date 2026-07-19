@@ -11,9 +11,12 @@ import {
   Bell,
   Wrench,
   AlertTriangle,
-  TrendingUp,
   CheckCircle2,
   RefreshCw,
+  Plus,
+  X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   LineChart,
@@ -38,6 +41,7 @@ import {
   WorkOrder,
   Notification,
   ComplianceFramework,
+  Reminder,
 } from "@/types/operational";
 
 export const Route = createFileRoute("/app/dashboard")({
@@ -63,7 +67,19 @@ function Dashboard() {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [frameworks, setFrameworks] = useState<ComplianceFramework[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Calendar modal state
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calendarDate, setCalendarDate] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d;
+  });
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [reminderForm, setReminderForm] = useState({ description: "", due_at: "" });
+  const [savingReminder, setSavingReminder] = useState(false);
 
   const roleLabel =
     role === "other" ? customRole : ROLES.find((r) => r.id === role)?.label;
@@ -81,6 +97,7 @@ function Dashboard() {
         { data: woData },
         { data: notifData },
         { data: fwData },
+        { data: reminderData },
       ] = await Promise.all([
         supabase.from("assets").select("*"),
         supabase.from("documents").select("*", { count: "exact", head: true }),
@@ -97,6 +114,13 @@ function Dashboard() {
               .limit(5)
           : Promise.resolve({ data: [] }),
         supabase.from("compliance_frameworks").select("*"),
+        user
+          ? supabase
+              .from("reminders")
+              .select("*")
+              .eq("user_id", user.id)
+              .order("due_at", { ascending: true })
+          : Promise.resolve({ data: [] }),
       ]);
 
       setAssets(astData || []);
@@ -104,6 +128,43 @@ function Dashboard() {
       setWorkOrders(woData || []);
       setNotifications(notifData || []);
       setFrameworks(fwData || []);
+      setReminders(reminderData || []);
+
+      // Check for due reminders and notify — item 5e (at due time, no lead-time)
+      if (user && reminderData && reminderData.length > 0) {
+        const now = new Date();
+        const dueNow = reminderData.filter(
+          (r: Reminder) => !r.is_notified && new Date(r.due_at) <= now,
+        );
+        if (dueNow.length > 0) {
+          await Promise.all(
+            dueNow.map((r: Reminder) =>
+              supabase.from("notifications").insert({
+                user_id: user.id,
+                title: `Reminder due: ${r.description.slice(0, 60)}`,
+                message: `Your reminder "${r.description}" was due at ${new Date(r.due_at).toLocaleString()}.`,
+                type: "info",
+                metadata: { category: "maintenance", priority: "medium" },
+                is_read: false,
+              }),
+            ),
+          );
+          await supabase
+            .from("reminders")
+            .update({ is_notified: true })
+            .in(
+              "id",
+              dueNow.map((r: Reminder) => r.id),
+            );
+          setReminders((prev) =>
+            prev.map((r) =>
+              dueNow.some((d: Reminder) => d.id === r.id)
+                ? { ...r, is_notified: true }
+                : r,
+            ),
+          );
+        }
+      }
     } catch (err) {
       console.error("Dashboard data fetch failed:", err);
     } finally {
@@ -454,7 +515,11 @@ function Dashboard() {
           </div>
         </Card>
 
-        <Card title="Maintenance Calendar" subtitle="Next 7 days">
+        <Card
+          title="Maintenance Calendar"
+          subtitle="Next 7 days — click to open"
+          onClick={() => setShowCalendar(true)}
+        >
           <div className="grid grid-cols-7 gap-1.5">
             {Array.from({ length: 7 }).map((_, i) => {
               const d = new Date();
@@ -464,6 +529,11 @@ function Dashboard() {
                 const woDate = new Date(w.due_date).toDateString();
                 return woDate === d.toDateString();
               }).length;
+              // Dot for days with a reminder — item 5b
+              const hasReminder = reminders.some((r) => {
+                const rd = new Date(r.due_at);
+                return rd.toDateString() === d.toDateString();
+              });
               return (
                 <div
                   key={i}
@@ -475,11 +545,14 @@ function Dashboard() {
                     {d.toLocaleDateString("en", { weekday: "short" })}
                   </div>
                   <div className="font-display font-bold">{d.getDate()}</div>
-                  <div className="mt-1 text-[10px] h-4">
+                  <div className="mt-1 text-[10px] h-4 flex items-center justify-center gap-1">
                     {count > 0 && (
                       <span className="inline-block rounded-full bg-accent/15 text-accent px-1.5 font-bold">
                         {count}
                       </span>
+                    )}
+                    {hasReminder && (
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-orange-400" title="Reminder" />
                     )}
                   </div>
                 </div>
@@ -494,6 +567,44 @@ function Dashboard() {
         Verify recommendations using official engineering procedures before
         operational or safety-critical actions.
       </p>
+
+      {/* ── Full Calendar Modal — item 5c/d/e ───────────────────────────── */}
+      {showCalendar && (
+        <CalendarModal
+          calendarDate={calendarDate}
+          setCalendarDate={setCalendarDate}
+          selectedDay={selectedDay}
+          setSelectedDay={setSelectedDay}
+          reminders={reminders}
+          activeWorkOrders={activeWorkOrders}
+          reminderForm={reminderForm}
+          setReminderForm={setReminderForm}
+          savingReminder={savingReminder}
+          onClose={() => { setShowCalendar(false); setSelectedDay(null); }}
+          onSaveReminder={async () => {
+            if (!reminderForm.description.trim() || !reminderForm.due_at) return;
+            setSavingReminder(true);
+            try {
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user) return;
+              const { data, error } = await supabase.from("reminders").insert({
+                user_id: user.id,
+                description: reminderForm.description.trim(),
+                due_at: new Date(reminderForm.due_at).toISOString(),
+                is_notified: false,
+              }).select().single();
+              if (error) throw error;
+              setReminders((prev) => [...prev, data as Reminder]);
+              setReminderForm({ description: "", due_at: "" });
+              setSelectedDay(null);
+            } catch (err) {
+              console.error("Failed to save reminder:", err);
+            } finally {
+              setSavingReminder(false);
+            }
+          }}
+        />
+      )}
     </>
   );
 }
@@ -544,15 +655,18 @@ function Card({
   subtitle,
   children,
   className = "",
+  onClick,
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
   className?: string;
+  onClick?: () => void;
 }) {
   return (
     <div
-      className={`rounded-2xl border border-border bg-card p-5 ${className}`}
+      className={`rounded-2xl border border-border bg-card p-5 ${className} ${onClick ? "cursor-pointer hover:border-accent transition-colors" : ""}`}
+      onClick={onClick}
     >
       <div className="flex items-baseline justify-between mb-4">
         <h3 className="font-display font-semibold">{title}</h3>
@@ -592,6 +706,270 @@ function StatusRow({
       </div>
       <div className="h-1.5 rounded-full bg-muted overflow-hidden">
         <div className={`h-full ${c}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Full Calendar Modal — item 5c/d ─────────────────────────────────────────
+function CalendarModal({
+  calendarDate,
+  setCalendarDate,
+  selectedDay,
+  setSelectedDay,
+  reminders,
+  activeWorkOrders,
+  reminderForm,
+  setReminderForm,
+  savingReminder,
+  onClose,
+  onSaveReminder,
+}: {
+  calendarDate: Date;
+  setCalendarDate: (d: Date) => void;
+  selectedDay: Date | null;
+  setSelectedDay: (d: Date | null) => void;
+  reminders: Reminder[];
+  activeWorkOrders: WorkOrder[];
+  reminderForm: { description: string; due_at: string };
+  setReminderForm: (f: { description: string; due_at: string }) => void;
+  savingReminder: boolean;
+  onClose: () => void;
+  onSaveReminder: () => void;
+}) {
+  const year = calendarDate.getFullYear();
+  const month = calendarDate.getMonth();
+
+  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const prevMonth = () => {
+    const d = new Date(year, month - 1, 1);
+    setCalendarDate(d);
+  };
+  const nextMonth = () => {
+    const d = new Date(year, month + 1, 1);
+    setCalendarDate(d);
+  };
+
+  const monthLabel = calendarDate.toLocaleDateString("en", {
+    month: "long",
+    year: "numeric",
+  });
+
+  const dayCells: (number | null)[] = [
+    ...Array(firstDay).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+
+  const remindersByDay = (day: number) =>
+    reminders.filter((r) => {
+      const d = new Date(r.due_at);
+      return (
+        d.getFullYear() === year &&
+        d.getMonth() === month &&
+        d.getDate() === day
+      );
+    });
+
+  const ordersByDay = (day: number) =>
+    activeWorkOrders.filter((w) => {
+      if (!w.due_date) return false;
+      const d = new Date(w.due_date);
+      return (
+        d.getFullYear() === year &&
+        d.getMonth() === month &&
+        d.getDate() === day
+      );
+    });
+
+  const today = new Date();
+  const isToday = (day: number) =>
+    today.getFullYear() === year &&
+    today.getMonth() === month &&
+    today.getDate() === day;
+
+  const handleDayClick = (day: number) => {
+    const d = new Date(year, month, day, 9, 0);
+    setSelectedDay(d);
+    // Pre-fill the datetime field with the selected day at 09:00
+    const isoLocal = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}T09:00`;
+    setReminderForm({ description: "", due_at: isoLocal });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-card border border-border w-full max-w-2xl rounded-3xl p-6 shadow-2xl relative">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 text-muted-foreground hover:text-foreground"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
+        {/* Month navigation */}
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-display text-lg font-bold">Maintenance Calendar</h3>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={prevMonth}
+              className="grid h-8 w-8 place-items-center rounded-lg border border-border hover:bg-muted transition"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="text-sm font-semibold w-36 text-center">{monthLabel}</span>
+            <button
+              type="button"
+              onClick={nextMonth}
+              className="grid h-8 w-8 place-items-center rounded-lg border border-border hover:bg-muted transition"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Weekday headers */}
+        <div className="grid grid-cols-7 mb-1">
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+            <div
+              key={d}
+              className="text-center text-[10px] uppercase tracking-wider text-muted-foreground py-1"
+            >
+              {d}
+            </div>
+          ))}
+        </div>
+
+        {/* Day grid */}
+        <div className="grid grid-cols-7 gap-1">
+          {dayCells.map((day, idx) => {
+            if (day === null) return <div key={`empty-${idx}`} />;
+            const dayReminders = remindersByDay(day);
+            const dayOrders = ordersByDay(day);
+            const isSelected =
+              selectedDay?.getFullYear() === year &&
+              selectedDay?.getMonth() === month &&
+              selectedDay?.getDate() === day;
+
+            return (
+              <button
+                key={day}
+                type="button"
+                onClick={() => handleDayClick(day)}
+                className={`rounded-lg border p-1.5 text-center min-h-[56px] flex flex-col items-center transition ${
+                  isSelected
+                    ? "border-accent bg-accent/10"
+                    : isToday(day)
+                      ? "border-accent/50 bg-accent/5"
+                      : "border-border hover:border-accent/40 hover:bg-muted/40"
+                }`}
+              >
+                <span
+                  className={`text-xs font-bold ${isToday(day) ? "text-accent" : ""}`}
+                >
+                  {day}
+                </span>
+                <div className="flex items-center gap-0.5 mt-1 flex-wrap justify-center">
+                  {dayOrders.length > 0 && (
+                    <span className="rounded-full bg-accent/15 text-accent text-[9px] font-bold px-1">
+                      {dayOrders.length}
+                    </span>
+                  )}
+                  {dayReminders.map((r) => (
+                    <span
+                      key={r.id}
+                      className="h-1.5 w-1.5 rounded-full bg-orange-400"
+                      title={r.description}
+                    />
+                  ))}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-4 mt-3 text-[10px] text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <span className="rounded-full bg-accent/15 text-accent font-bold px-1.5">N</span>
+            Work orders due
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full bg-orange-400 inline-block" />
+            Reminder
+          </div>
+        </div>
+
+        {/* Add reminder form — appears when a day is selected */}
+        {selectedDay && (
+          <div className="mt-4 rounded-xl border border-border bg-muted/30 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold">
+                Add reminder for{" "}
+                {selectedDay.toLocaleDateString("en", {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedDay(null)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-2 text-xs">
+              <div>
+                <label className="block text-muted-foreground mb-1">Description</label>
+                <input
+                  placeholder="e.g. Check pressure relief valves"
+                  value={reminderForm.description}
+                  onChange={(e) =>
+                    setReminderForm({ ...reminderForm, description: e.target.value })
+                  }
+                  className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
+                />
+              </div>
+              <div>
+                <label className="block text-muted-foreground mb-1">Due date & time</label>
+                <input
+                  type="datetime-local"
+                  value={reminderForm.due_at}
+                  onChange={(e) =>
+                    setReminderForm({ ...reminderForm, due_at: e.target.value })
+                  }
+                  className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent text-foreground"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedDay(null)}
+                className="flex-1 h-8 rounded-lg border border-border text-xs font-medium hover:bg-muted transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={
+                  savingReminder ||
+                  !reminderForm.description.trim() ||
+                  !reminderForm.due_at
+                }
+                onClick={onSaveReminder}
+                className="flex-1 h-8 rounded-lg bg-accent text-accent-foreground text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-50 hover:opacity-90 transition"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {savingReminder ? "Saving…" : "Save Reminder"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

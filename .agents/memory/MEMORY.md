@@ -1,0 +1,1 @@
+- [Supabase SSR WebSocket Node.js 20](supabase-ssr-node20.md) — stub WebSocket in globalThis before createClient or SSR throws 500; guard is in src/lib/supabase.ts.

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Search, ZoomIn, ZoomOut, Maximize2, X, RefreshCw } from "lucide-react";
+import { Search, ZoomIn, ZoomOut, Maximize2, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -29,6 +29,86 @@ const COLORS = {
   sop: "#8B5CF6",
 };
 
+/** Iterative force-directed layout: repulsion + spring + gravity toward center */
+function runForceLayout(nodes: Node[], edges: Edge[]): Node[] {
+  if (nodes.length === 0) return nodes;
+
+  const pos = nodes.map((n) => ({ id: n.id, x: n.x, y: n.y }));
+  const vel: Record<string, { vx: number; vy: number }> = {};
+  pos.forEach((p) => {
+    vel[p.id] = { vx: 0, vy: 0 };
+  });
+
+  const REPULSION = 14000;
+  const SPRING_STRENGTH = 0.05;
+  const IDEAL_LENGTH = 160;
+  const GRAVITY = 0.006;
+  const CX = 450,
+    CY = 300;
+  const DECAY = 0.85;
+
+  for (let iter = 0; iter < 280; iter++) {
+    const fx: Record<string, number> = {};
+    const fy: Record<string, number> = {};
+    pos.forEach((p) => {
+      fx[p.id] = 0;
+      fy[p.id] = 0;
+    });
+
+    // Repulsion between all pairs
+    for (let i = 0; i < pos.length; i++) {
+      for (let j = i + 1; j < pos.length; j++) {
+        const dx = pos[j].x - pos[i].x || 0.01;
+        const dy = pos[j].y - pos[i].y || 0.01;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const force = REPULSION / (dist * dist);
+        const ux = dx / dist,
+          uy = dy / dist;
+        fx[pos[i].id] -= ux * force;
+        fy[pos[i].id] -= uy * force;
+        fx[pos[j].id] += ux * force;
+        fy[pos[j].id] += uy * force;
+      }
+    }
+
+    // Spring attraction along edges
+    edges.forEach((e) => {
+      const a = pos.find((p) => p.id === e.a);
+      const b = pos.find((p) => p.id === e.b);
+      if (!a || !b) return;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+      const force = SPRING_STRENGTH * (dist - IDEAL_LENGTH);
+      const ux = dx / dist,
+        uy = dy / dist;
+      fx[a.id] += ux * force;
+      fy[a.id] += uy * force;
+      fx[b.id] -= ux * force;
+      fy[b.id] -= uy * force;
+    });
+
+    // Gravity toward center
+    pos.forEach((p) => {
+      fx[p.id] += (CX - p.x) * GRAVITY;
+      fy[p.id] += (CY - p.y) * GRAVITY;
+    });
+
+    // Apply with damping
+    pos.forEach((p) => {
+      vel[p.id].vx = (vel[p.id].vx + fx[p.id]) * DECAY;
+      vel[p.id].vy = (vel[p.id].vy + fy[p.id]) * DECAY;
+      p.x += vel[p.id].vx;
+      p.y += vel[p.id].vy;
+    });
+  }
+
+  return nodes.map((n) => {
+    const p = pos.find((pp) => pp.id === n.id)!;
+    return { ...n, x: p.x, y: p.y };
+  });
+}
+
 function Graph() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -36,6 +116,7 @@ function Graph() {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Node | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
   const [filters, setFilters] = useState<Record<string, boolean>>({
@@ -65,33 +146,32 @@ function Graph() {
       const gNodes: Node[] = [];
       const gEdges: Edge[] = [];
 
-      // 1. Add Asset Nodes in a central ring/circle
+      // 1. Asset nodes in a central ring
       const assetNodesList: Node[] = (astData || []).map((a, index) => {
-        const angle = (index / (astData?.length || 4)) * 2 * Math.PI;
+        const angle = (index / Math.max(astData?.length || 1, 1)) * 2 * Math.PI;
         const radius = 180;
         return {
           id: a.id,
-          label: `${a.id}: ${a.name}`,
-          type: "asset",
-          x: 400 + Math.cos(angle) * radius,
-          y: 280 + Math.sin(angle) * radius,
-          details: `Type: ${a.type} | Plant: ${a.plant} | Health: ${a.health_percentage}%`,
+          label: `${a.asset_code ?? a.id}: ${a.name}`,
+          type: "asset" as const,
+          x: 450 + Math.cos(angle) * radius,
+          y: 300 + Math.sin(angle) * radius,
+          details: `Type: ${a.category ?? a.type} | Health: ${a.health_percentage}%`,
         };
       });
       gNodes.push(...assetNodesList);
 
-      // 2. Add Documents and map edges to assets
+      // 2. Documents — initial scatter, edges to mapped asset
       (docData || []).forEach((d, index) => {
         const docId = `doc-${d.id}`;
-        // Find if mapped to a specific asset
         const mappedAsset = assetNodesList.find((an) => an.id === d.asset);
-        let x = 150 + (index % 3) * 120;
-        let y = 100 + Math.floor(index / 3) * 80;
+        const spread = (index - (docData?.length ?? 0) / 2) * 80;
+        let x = 150 + (index % 4) * 100;
+        let y = 80 + Math.floor(index / 4) * 90;
 
         if (mappedAsset) {
-          // Place nearby the mapped asset
-          x = mappedAsset.x + (Math.random() - 0.5) * 120;
-          y = mappedAsset.y + (Math.random() - 0.5) * 120;
+          x = mappedAsset.x + spread * 0.3 + 60;
+          y = mappedAsset.y + (index % 2 === 0 ? 80 : -80);
           gEdges.push({ a: mappedAsset.id, b: docId });
         }
 
@@ -101,26 +181,26 @@ function Graph() {
           type: d.category === "SOPs" ? "sop" : "doc",
           x,
           y,
-          details: `Category: ${d.category} | Version: ${d.version} | Size: ${(d.size / 1024 / 1024).toFixed(2)} MB`,
+          details: `Category: ${d.category} | Version: ${d.version}`,
         });
       });
 
-      // 3. Add Incidents (NCRs) and connect them
+      // 3. NCRs — link to first asset matching framework
       (ncrData || []).forEach((n, index) => {
         const ncrId = `ncr-${n.id}`;
-        // Randomly scatter NCRs or link to asset if framework matches asset ID (standard mock P-401 links to PESO/ISO)
-        let x = 600 + (index % 2) * 100;
-        let y = 350 + Math.floor(index / 2) * 100;
+        const linkedAsset =
+          assetNodesList.find((an) =>
+            n.framework_ref &&
+            an.label.toLowerCase().includes(n.framework_ref.toLowerCase()),
+          ) || assetNodesList[index % Math.max(assetNodesList.length, 1)];
 
-        // Try linking to Pump P-401 as a mock relationship
-        const p401 = assetNodesList.find((an) => an.id === "P-401");
-        if (
-          p401 &&
-          (n.framework_ref === "PESO" || n.framework_ref === "ISO 9001")
-        ) {
-          x = p401.x + (Math.random() - 0.5) * 150;
-          y = p401.y + (Math.random() - 0.5) * 150;
-          gEdges.push({ a: p401.id, b: ncrId });
+        let x = 600 + (index % 3) * 90;
+        let y = 350 + Math.floor(index / 3) * 90;
+
+        if (linkedAsset) {
+          x = linkedAsset.x + 100 + (index % 2 === 0 ? 40 : -40);
+          y = linkedAsset.y + (index % 2 === 0 ? -100 : 100);
+          gEdges.push({ a: linkedAsset.id, b: ncrId });
         }
 
         gNodes.push({
@@ -133,17 +213,16 @@ function Graph() {
         });
       });
 
-      // 3.5 Add Root Cause Analysis (RCA) Reports as Nodes
+      // 3.5 RCA Reports
       (rcaData || []).forEach((r, index) => {
         const rcaNodeId = `rca-${r.id}`;
-        // Find if mapped to a specific asset
         const mappedAsset = assetNodesList.find((an) => an.id === r.asset_id);
         let x = 300 + (index % 3) * 100;
-        let y = 450 + Math.floor(index / 3) * 80;
+        let y = 480 + Math.floor(index / 3) * 80;
 
         if (mappedAsset) {
-          x = mappedAsset.x + (Math.random() - 0.5) * 140;
-          y = mappedAsset.y + (Math.random() - 0.5) * 140;
+          x = mappedAsset.x - 90 + (index % 2 === 0 ? 30 : -30);
+          y = mappedAsset.y + 110;
           gEdges.push({ a: mappedAsset.id, b: rcaNodeId });
         }
 
@@ -153,25 +232,27 @@ function Graph() {
           type: "incident",
           x,
           y,
-          details: `Incident: ${r.incident_ref} | Root Cause: ${r.root_cause} | Actions: ${r.corrective_actions}`,
+          details: `Incident: ${r.incident_ref} | Root Cause: ${r.root_cause}`,
         });
       });
 
-      // 4. Add key personnel as nodes
+      // 4. Personnel nodes — placed away from asset cluster
       const personnel = [
         {
           id: "p-sharma",
           name: "R. Sharma",
           x: 750,
-          y: 150,
+          y: 160,
           details: "Maintenance Lead (Operations)",
+          linkedAssetIdx: 0,
         },
         {
           id: "p-patel",
           name: "A. Patel",
-          x: 720,
-          y: 400,
+          x: 730,
+          y: 420,
           details: "Quality Compliance Officer",
+          linkedAssetIdx: -1,
         },
       ];
 
@@ -184,19 +265,16 @@ function Graph() {
           y: p.y,
           details: p.details,
         });
-
-        // Link R. Sharma to P-401 asset
-        if (p.id === "p-sharma") {
-          const p401 = assetNodesList.find((an) => an.id === "P-401");
-          if (p401) gEdges.push({ a: p401.id, b: p.id });
+        if (p.linkedAssetIdx >= 0 && assetNodesList[p.linkedAssetIdx]) {
+          gEdges.push({ a: assetNodesList[p.linkedAssetIdx].id, b: p.id });
         }
       });
 
-      setNodes(gNodes);
+      // Run force layout to produce relationship-aware positions
+      const laidOut = runForceLayout(gNodes, gEdges);
+      setNodes(laidOut);
       setEdges(gEdges);
-      if (gNodes.length > 0) {
-        setSelected(gNodes[0]);
-      }
+      if (laidOut.length > 0) setSelected(laidOut[0]);
     } catch (e) {
       console.error(e);
       toast.error("Failed to construct live knowledge graph");
@@ -341,35 +419,54 @@ function Graph() {
                   />
                 );
               })}
-              {visibleNodes.map((n) => (
-                <g
-                  key={n.id}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelected(n);
-                  }}
-                  className="cursor-pointer group"
-                >
-                  <circle
-                    cx={n.x}
-                    cy={n.y}
-                    r={selected?.id === n.id ? 10 : 7}
-                    fill={COLORS[n.type]}
-                    className="transition-all hover:scale-125"
-                    stroke={selected?.id === n.id ? "#fff" : "none"}
-                    strokeWidth={2}
-                  />
-                  <text
-                    x={n.x}
-                    y={n.y - 12}
-                    textAnchor="middle"
-                    fill="#fff"
-                    className="text-[10px] font-medium opacity-90 select-none group-hover:opacity-100 transition"
+              {visibleNodes.map((n) => {
+                const isSelected = selected?.id === n.id;
+                const isHovered = hoveredId === n.id;
+                const r = isSelected || isHovered ? 11 : 7;
+                return (
+                  <g
+                    key={n.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelected(n);
+                    }}
+                    onMouseEnter={() => setHoveredId(n.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                    className="cursor-pointer"
                   >
-                    {n.label}
-                  </text>
-                </g>
-              ))}
+                    {/* Outer glow ring on hover — rendered in SVG, no CSS scaling */}
+                    {isHovered && (
+                      <circle
+                        cx={n.x}
+                        cy={n.y}
+                        r={16}
+                        fill={COLORS[n.type]}
+                        opacity={0.18}
+                      />
+                    )}
+                    <circle
+                      cx={n.x}
+                      cy={n.y}
+                      r={r}
+                      fill={COLORS[n.type]}
+                      stroke={isSelected ? "#fff" : isHovered ? "rgba(255,255,255,0.6)" : "none"}
+                      strokeWidth={isSelected ? 2.5 : 1.5}
+                    />
+                    <text
+                      x={n.x}
+                      y={n.y - 14}
+                      textAnchor="middle"
+                      fill="#fff"
+                      fontSize={10}
+                      fontWeight={isHovered || isSelected ? "600" : "400"}
+                      opacity={isHovered || isSelected ? 1 : 0.85}
+                      style={{ userSelect: "none" }}
+                    >
+                      {n.label}
+                    </text>
+                  </g>
+                );
+              })}
             </g>
           </svg>
         </div>
