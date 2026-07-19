@@ -37,7 +37,6 @@ export const Route = createFileRoute("/app/quality")({
   component: Page,
 });
 
-// ─── Local helper: notification insert ───────────────────────────────────────
 async function insertNotification(
   userId: string,
   title: string,
@@ -45,14 +44,17 @@ async function insertNotification(
   type: string = "info",
   priority: "high" | "medium" | "low" = "medium",
 ) {
-  await supabase.from("notifications").insert({
-    user_id: userId,
+  const { data, error } = await supabase.rpc("create_notification", {
+    target_user_id: userId,
     title,
     message,
     type,
     metadata: { category: "compliance", priority },
-    is_read: false,
   });
+  if (error) {
+    console.error("Failed to insert notification via RPC:", error);
+    throw new Error(error.message);
+  }
 }
 
 // ─── Chip / tag input ─────────────────────────────────────────────────────────

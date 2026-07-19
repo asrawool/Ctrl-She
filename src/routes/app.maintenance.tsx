@@ -62,11 +62,38 @@ function Page() {
   const canAdjustSpares = hasPermission(role, "create:spare_parts");
   const canCreateRca = hasPermission(role, "create:rca_reports");
 
+  const sendWoNotification = async (
+    targetUserId: string,
+    title: string,
+    message: string,
+    priority: string = "medium",
+  ) => {
+    const { error } = await supabase.rpc("create_notification", {
+      target_user_id: targetUserId,
+      title,
+      message,
+      type: "info",
+      metadata: { category: "maintenance", priority: priority.toLowerCase() },
+    });
+    if (error) {
+      console.error("Failed to send work order notification via RPC:", error);
+      toast.error("Notification failed: " + error.message);
+    }
+  };
+
   const { assets } = useAssets();
   const { parts: spareParts } = usePartsStock();
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [rcaReports, setRcaReports] = useState<RCAReport[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Custom states for engineer assignment and completion workflow
+  const [engineers, setEngineers] = useState<{ user_id: string; full_name: string; email: string }[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [assigneeSearch, setAssigneeSearch] = useState("");
+  const [rejectWoId, setRejectWoId] = useState<string | null>(null);
+  const [rejectNote, setRejectNote] = useState("");
+  const [activeWoTab, setActiveWoTab] = useState<"active" | "assigned" | "history">("active");
 
   // Modal display states
   const [showAssetModal, setShowAssetModal] = useState(false);
@@ -89,6 +116,7 @@ function Page() {
       "preventive" | "corrective" | "predictive" | "emergency",
     priority: "Medium",
     assigned_to: "",
+    assignee_id: "",
     due_date: "",
     notes: "",
     source_rca_id: "",
@@ -130,7 +158,13 @@ function Page() {
 
   const fetchData = async () => {
     try {
-      const [{ data: woData }, { data: rcaData }] = await Promise.all([
+      const [
+        { data: woData },
+        { data: rcaData },
+        { data: profData },
+        { data: roleData },
+        { data: { user } }
+      ] = await Promise.all([
         supabase
           .from("work_orders")
           .select("*")
@@ -139,10 +173,28 @@ function Page() {
           .from("rca_reports")
           .select("*")
           .order("created_at", { ascending: false }),
+        supabase
+          .from("user_profiles")
+          .select("user_id, full_name, email"),
+        supabase
+          .from("user_roles")
+          .select("user_id, role")
+          .eq("role", "maintenance_engineer"),
+        supabase.auth.getUser(),
       ]);
 
       setWorkOrders(woData || []);
       setRcaReports(rcaData || []);
+
+      if (user) {
+        setCurrentUserId(user.id);
+      }
+
+      // Filter profiles by maintenance_engineer role
+      const engProfiles = (profData || []).filter((p) =>
+        (roleData || []).some((r) => r.user_id === p.user_id)
+      ) as { user_id: string; full_name: string; email: string }[];
+      setEngineers(engProfiles);
     } catch (e) {
       console.error(e);
       toast.error("Failed to load maintenance records");
@@ -196,22 +248,46 @@ function Page() {
       return;
     }
     try {
-      const { error } = await supabase.from("work_orders").insert({
-        asset_id: woForm.asset_id,
-        title: woForm.title,
-        type: woForm.type,
-        priority: woForm.priority,
-        status: "Pending",
-        assigned_to: woForm.assigned_to || null,
-        due_date: woForm.due_date
-          ? new Date(woForm.due_date).toISOString()
-          : null,
-        notes: woForm.notes || null,
-        source_rca_id: woForm.source_rca_id || null,
-        source_rca_action: woForm.source_rca_action || null,
-      });
+      const { data: { user } } = await supabase.auth.getUser();
+
+      const { data: newWo, error } = await supabase
+        .from("work_orders")
+        .insert({
+          asset_id: woForm.asset_id,
+          title: woForm.title,
+          type: woForm.type,
+          priority: woForm.priority,
+          status: "Pending",
+          assigned_to: woForm.assigned_to || null,
+          assignee_id: woForm.assignee_id || null,
+          due_date: woForm.due_date
+            ? new Date(woForm.due_date).toISOString()
+            : null,
+          notes: woForm.notes || null,
+          source_rca_id: woForm.source_rca_id || null,
+          source_rca_action: woForm.source_rca_action || null,
+          created_by: user?.id || null,
+        })
+        .select()
+        .single();
 
       if (error) throw error;
+
+      // Notify the assigned engineer if assignee_id is selected
+      if (woForm.assignee_id && newWo) {
+        const targetAsset = assets.find((a) => a.id === woForm.asset_id);
+        const assetName = targetAsset ? targetAsset.name : "Asset";
+        const dueStr = woForm.due_date
+          ? new Date(woForm.due_date).toLocaleString()
+          : "no due date";
+        await sendWoNotification(
+          woForm.assignee_id,
+          `New Work Order: ${woForm.title}`,
+          `You have been assigned the work order "${woForm.title}" for ${assetName} (Priority: ${woForm.priority}), due by ${dueStr}.`,
+          woForm.priority
+        );
+      }
+
       toast.success("Work Order scheduled successfully");
       setShowWoModal(false);
       setWoForm({
@@ -220,14 +296,112 @@ function Page() {
         type: "preventive",
         priority: "Medium",
         assigned_to: "",
+        assignee_id: "",
         due_date: "",
         notes: "",
         source_rca_id: "",
         source_rca_action: "",
       });
+      setAssigneeSearch("");
       fetchData();
     } catch (err: unknown) {
       toast.error("Failed to schedule work order: " + (err as Error).message);
+    }
+  };
+
+  const handleMarkComplete = async (wo: WorkOrder) => {
+    try {
+      const { error } = await supabase
+        .from("work_orders")
+        .update({ status: "Completed — Pending Verification" })
+        .eq("id", wo.id);
+      if (error) throw error;
+
+      // Fetch all plant managers to notify
+      const { data: managers } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "plant_manager");
+
+      const notifyIds = new Set<string>();
+      if (wo.created_by) notifyIds.add(wo.created_by);
+      (managers || []).forEach((m) => notifyIds.add(m.user_id));
+
+      await Promise.all(
+        Array.from(notifyIds).map((targetId) =>
+          sendWoNotification(
+            targetId,
+            `Work Order Completed: ${wo.title}`,
+            `Work order "${wo.title}" has been marked as Completed by ${wo.assigned_to || "the engineer"} and is pending your verification.`,
+            wo.priority
+          )
+        )
+      );
+
+      toast.success("Work order marked as Completed — Pending Verification");
+      fetchData();
+    } catch (err: unknown) {
+      toast.error("Failed to update status: " + (err as Error).message);
+    }
+  };
+
+  const handleVerify = async (wo: WorkOrder) => {
+    try {
+      const { error } = await supabase
+        .from("work_orders")
+        .update({
+          status: "Completed",
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", wo.id);
+      if (error) throw error;
+
+      if (wo.assignee_id) {
+        await sendWoNotification(
+          wo.assignee_id,
+          `Work Order Verified: ${wo.title}`,
+          `Your work on "${wo.title}" has been verified and closed.`,
+          wo.priority
+        );
+      }
+
+      toast.success("Work order verified and closed");
+      fetchData();
+    } catch (err: unknown) {
+      toast.error("Failed to verify work order: " + (err as Error).message);
+    }
+  };
+
+  const handleReject = async (woId: string, note: string) => {
+    if (!note.trim()) {
+      toast.error("Please enter a rework note.");
+      return;
+    }
+    try {
+      const wo = workOrders.find((w) => w.id === woId);
+      if (!wo) return;
+
+      const { error } = await supabase
+        .from("work_orders")
+        .update({ status: "Pending" })
+        .eq("id", woId);
+      if (error) throw error;
+
+      if (wo.assignee_id) {
+        await sendWoNotification(
+          wo.assignee_id,
+          `Work Order Rework Required: ${wo.title}`,
+          `Your work on "${wo.title}" was sent back for rework. Note: "${note}"`,
+          "high"
+        );
+      }
+
+      toast.success("Work order sent back for rework");
+      setRejectWoId(null);
+      setRejectNote("");
+      fetchData();
+    } catch (err: unknown) {
+      toast.error("Failed to reject work order: " + (err as Error).message);
     }
   };
 
@@ -653,58 +827,192 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         {/* Maintenance Timeline */}
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <h3 className="font-display font-semibold mb-4">
-            Maintenance Timeline
-          </h3>
-          {workOrders.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">
-              No work orders scheduled.
-            </p>
-          ) : (
-            <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-1 before:bottom-1 before:w-0.5 before:bg-border">
-              {workOrders.slice(0, 5).map((e, i) => {
-                const dayStr = e.due_date
-                  ? new Date(e.due_date).toLocaleDateString(undefined, {
-                      day: "numeric",
-                      month: "short",
-                    })
-                  : "—";
-                const tone =
-                  e.priority === "Critical" || e.priority === "High"
-                    ? "warning"
-                    : "emerald";
-                return (
-                  <div
-                    key={e.id || i}
-                    id={`wo-${e.id}`}
-                    className="relative p-1 rounded-lg transition-all duration-300"
-                  >
-                    <span
-                      className={`absolute -left-6 top-1 grid h-4 w-4 place-items-center rounded-full ${
-                        tone === "warning"
-                          ? "bg-orange-500 animate-pulse"
-                          : "bg-emerald"
-                      }`}
-                    />
-                    <div className="text-[10px] uppercase font-bold text-muted-foreground">
-                      {dayStr} ({e.status})
-                    </div>
-                    <div className="text-sm font-medium">
-                      {e.type.toUpperCase()}: {e.title} for{" "}
-                      {assets.find((a) => a.id === e.asset_id)?.asset_code ||
-                        e.asset_id}
-                    </div>
-                    {e.assigned_to && (
-                      <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                        <User className="h-3 w-3" /> {e.assigned_to}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+        <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h3 className="font-display font-semibold">
+              Maintenance Timeline
+            </h3>
+            <div className="flex gap-1 text-xs">
+              {(["active", "assigned", "history"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveWoTab(tab)}
+                  className={`px-3 py-1 rounded-full font-medium transition ${
+                    activeWoTab === tab
+                      ? "bg-accent text-accent-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/70"
+                  }`}
+                >
+                  {tab === "active" ? "All Active" : tab === "assigned" ? "Assigned to Me" : "History"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Rework / Reject Reason Overlay */}
+          {rejectWoId && (
+            <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 space-y-2 text-xs">
+              <div className="font-semibold text-destructive">Enter Rework / Rejection Reason</div>
+              <textarea
+                placeholder="Describe what needs to be fixed..."
+                value={rejectNote}
+                onChange={(e) => setRejectNote(e.target.value)}
+                className="w-full h-12 rounded bg-background border border-border p-1.5 outline-none text-foreground"
+              />
+              <div className="flex gap-2 justify-end">
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => {
+                    setRejectWoId(null);
+                    setRejectNote("");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="xs"
+                  variant="destructive"
+                  onClick={() => handleReject(rejectWoId, rejectNote)}
+                >
+                  Send Back for Rework
+                </Button>
+              </div>
             </div>
           )}
+
+          {(() => {
+            const filteredWos = workOrders.filter((w) => {
+              if (activeWoTab === "active") return w.status !== "Completed";
+              if (activeWoTab === "assigned") return w.assignee_id === currentUserId && w.status !== "Completed";
+              return w.status === "Completed";
+            });
+
+            if (filteredWos.length === 0) {
+              return (
+                <p className="text-xs text-muted-foreground italic py-4">
+                  No work orders found in this section.
+                </p>
+              );
+            }
+
+            return (
+              <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-1 before:bottom-1 before:w-0.5 before:bg-border">
+                {filteredWos.map((e, idx) => {
+                  const dayStr = e.due_date
+                    ? new Date(e.due_date).toLocaleDateString(undefined, {
+                        day: "numeric",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "—";
+                  const tone =
+                    e.priority === "Critical" || e.priority === "High"
+                      ? "warning"
+                      : "emerald";
+                  
+                  const isAssignee = currentUserId && e.assignee_id === currentUserId;
+                  const isAssigner = currentUserId && (e.created_by === currentUserId || role === "plant_manager" || role === "safety_officer");
+                  
+                  // Badge styles matching inspections page
+                  const badgeStyle = 
+                    e.status === "Completed"
+                      ? "bg-emerald/10 text-emerald border-emerald/20"
+                      : e.status === "Completed — Pending Verification"
+                        ? "bg-orange-500/10 text-orange-500 border-orange-500/20"
+                        : "bg-blue-500/10 text-blue-500 border-blue-500/20";
+
+                  return (
+                    <div
+                      key={e.id || idx}
+                      id={`wo-${e.id}`}
+                      className="relative p-2 rounded-xl border border-transparent hover:border-border hover:bg-muted/10 transition-all duration-300 space-y-1.5"
+                    >
+                      <span
+                        className={`absolute -left-[22px] top-3 grid h-3 w-3 place-items-center rounded-full ${
+                          tone === "warning"
+                            ? "bg-orange-500 animate-pulse"
+                            : "bg-emerald"
+                        }`}
+                      />
+                      
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="text-[10px] uppercase font-bold text-muted-foreground">
+                          Due: {dayStr}
+                        </div>
+                        <div className="flex gap-1.5 items-center">
+                          {/* Priority badge */}
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${
+                            tone === "warning" ? "border-orange-500/20 bg-orange-500/10 text-orange-500" : "border-emerald/20 bg-emerald/10 text-emerald"
+                          }`}>
+                            {e.priority}
+                          </span>
+                          {/* Status badge */}
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${badgeStyle}`}>
+                            {e.status}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-sm font-medium">
+                        {e.type.toUpperCase()}: {e.title} for{" "}
+                        {assets.find((a) => a.id === e.asset_id)?.asset_code ||
+                          e.asset_id}
+                      </div>
+
+                      {e.notes && (
+                        <p className="text-xs text-muted-foreground italic max-w-md line-clamp-2">
+                          {e.notes}
+                        </p>
+                      )}
+
+                      <div className="flex items-center justify-between flex-wrap gap-2 mt-1">
+                        {e.assigned_to && (
+                          <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                            <User className="h-3 w-3" /> {e.assigned_to}
+                          </div>
+                        )}
+
+                        {/* Action buttons */}
+                        <div className="flex gap-1.5">
+                          {(e.status === "Pending" || e.status === "Scheduled") && isAssignee && (
+                            <Button
+                              size="xs"
+                              onClick={() => handleMarkComplete(e)}
+                              className="text-[10px] py-0.5 px-2 bg-accent text-accent-foreground hover:bg-accent/90"
+                            >
+                              Mark Complete
+                            </Button>
+                          )}
+                          {e.status === "Completed — Pending Verification" && isAssigner && (
+                            <>
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => setRejectWoId(e.id)}
+                                className="text-[10px] py-0.5 px-2 text-destructive border-destructive/20 hover:bg-destructive/10"
+                              >
+                                Reject
+                              </Button>
+                              <Button
+                                size="xs"
+                                onClick={() => handleVerify(e)}
+                                className="text-[10px] py-0.5 px-2 bg-emerald hover:bg-emerald/90 text-white"
+                              >
+                                Verify
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Spare Parts Inventory */}
@@ -994,14 +1302,69 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                 <label className="block text-muted-foreground mb-1">
                   Assign Engineer
                 </label>
-                <input
-                  placeholder="Engineer Name"
-                  value={woForm.assigned_to}
-                  onChange={(e) =>
-                    setWoForm({ ...woForm, assigned_to: e.target.value })
-                  }
-                  className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                />
+                <div className="relative">
+                  <input
+                    placeholder="Search engineer by name or email…"
+                    value={assigneeSearch}
+                    onChange={(e) => setAssigneeSearch(e.target.value)}
+                    className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent text-xs"
+                  />
+                  {assigneeSearch.trim() && (
+                    <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-lg border border-border bg-card shadow-lg max-h-48 overflow-y-auto p-1.5 space-y-1">
+                      {engineers
+                        .filter(
+                          (eng) =>
+                            eng.full_name?.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
+                            eng.email?.toLowerCase().includes(assigneeSearch.toLowerCase())
+                        )
+                        .map((eng) => (
+                          <button
+                            key={eng.user_id}
+                            type="button"
+                            onClick={() => {
+                              setWoForm({
+                                ...woForm,
+                                assignee_id: eng.user_id,
+                                assigned_to: eng.full_name,
+                              });
+                              setAssigneeSearch(eng.full_name);
+                            }}
+                            className={`w-full text-left px-2 py-1.5 rounded-md text-xs hover:bg-muted transition flex justify-between items-center ${
+                              woForm.assignee_id === eng.user_id ? "bg-accent/10 text-accent font-bold" : ""
+                            }`}
+                          >
+                            <span>{eng.full_name}</span>
+                            <span className="text-[10px] opacity-60 font-normal">{eng.email}</span>
+                          </button>
+                        ))}
+                      {engineers.filter(
+                        (eng) =>
+                          eng.full_name?.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
+                          eng.email?.toLowerCase().includes(assigneeSearch.toLowerCase())
+                      ).length === 0 && (
+                        <div className="text-muted-foreground italic text-center py-2 text-[10px]">
+                          No engineers match search
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {/* Selected engineer display badge if search is empty */}
+                  {!assigneeSearch.trim() && woForm.assigned_to && (
+                    <div className="mt-1 flex items-center gap-1.5 text-xs text-accent bg-accent/10 w-fit px-2 py-0.5 rounded">
+                      <span>Assigned: {woForm.assigned_to}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWoForm({ ...woForm, assignee_id: "", assigned_to: "" });
+                          setAssigneeSearch("");
+                        }}
+                        className="hover:text-destructive"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="block text-muted-foreground mb-1">
