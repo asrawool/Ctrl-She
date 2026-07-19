@@ -18,6 +18,7 @@ import {
   Cpu,
   FileBadge,
   Boxes,
+  ShoppingCart,
 } from "lucide-react";
 import { useAuth } from "@/store/auth";
 import { canAccess, type ModuleKey } from "@/services/rbac";
@@ -80,6 +81,12 @@ const ITEMS: Item[] = [
     label: "Asset Inventory",
     icon: Boxes,
     module: "inventory",
+  },
+  {
+    to: "/app/procurement",
+    label: "Procurement Workflow",
+    icon: ShoppingCart,
+    module: "procurement",
   },
   {
     to: "/app/analytics",

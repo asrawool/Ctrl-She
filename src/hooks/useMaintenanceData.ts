@@ -71,7 +71,8 @@ export function useAssets() {
           type: item.category,
           plant: item.location,
           health_percentage: item.health_percentage ?? 100,
-          status: (item.health_status || "healthy") as "healthy" | "warning" | "critical",
+          status: (item.health_status || "healthy") as
+            "healthy" | "warning" | "critical",
           rul_days: item.rul_days ?? 365,
           updated_at: item.updated_at,
         }));

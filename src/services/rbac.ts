@@ -14,7 +14,8 @@ export type ModuleKey =
   | "settings"
   | "help"
   | "insurance"
-  | "inventory";
+  | "inventory"
+  | "procurement";
 
 const ALL: ModuleKey[] = [
   "dashboard",
@@ -31,6 +32,7 @@ const ALL: ModuleKey[] = [
   "help",
   "insurance",
   "inventory",
+  "procurement",
 ];
 
 const BASE: ModuleKey[] = [
@@ -48,11 +50,23 @@ const BASE: ModuleKey[] = [
 const PERMISSIONS: Record<Role, ModuleKey[]> = {
   plant_manager: ALL,
   digital_transformation: ALL,
-  maintenance_engineer: [...BASE, "maintenance", "analytics", "inventory"],
-  reliability_engineer: [...BASE, "maintenance", "analytics", "inventory"],
+  maintenance_engineer: [
+    ...BASE,
+    "maintenance",
+    "analytics",
+    "inventory",
+    "procurement",
+  ],
+  reliability_engineer: [
+    ...BASE,
+    "maintenance",
+    "analytics",
+    "inventory",
+    "procurement",
+  ],
   plant_ops: [...BASE, "maintenance", "quality", "analytics"],
   quality_engineer: [...BASE, "quality", "analytics", "insurance"],
-  safety_officer: [...BASE, "quality", "analytics", "insurance"],
+  safety_officer: [...BASE, "quality", "analytics", "insurance", "procurement"],
   document_controller: ALL,
   other: BASE,
 };
@@ -81,7 +95,9 @@ export type OperationalAction =
   | "update:machine_licenses"
   | "create:certifications"
   | "update:certifications"
-  | "manage:documents";
+  | "manage:documents"
+  | "create:purchase_requests"
+  | "approve:purchase_requests";
 
 const WRITE_PERMISSIONS: Record<Role, Set<OperationalAction>> = {
   plant_manager: new Set([
@@ -109,6 +125,8 @@ const WRITE_PERMISSIONS: Record<Role, Set<OperationalAction>> = {
     "create:certifications",
     "update:certifications",
     "manage:documents",
+    "create:purchase_requests",
+    "approve:purchase_requests",
   ]),
   maintenance_engineer: new Set([
     "create:assets",
@@ -122,6 +140,7 @@ const WRITE_PERMISSIONS: Record<Role, Set<OperationalAction>> = {
     "create:inventory_items",
     "update:inventory_items",
     "create:inventory_movements",
+    "create:purchase_requests",
   ]),
   plant_ops: new Set([
     "create:work_orders",

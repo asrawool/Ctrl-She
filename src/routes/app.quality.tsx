@@ -196,6 +196,7 @@ function CreatableCombobox({
   );
 }
 
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 function Page() {
   const { role } = useAuth();
@@ -222,11 +223,16 @@ function Page() {
     framework_ref: "ISO 9001",
   });
 
+  const [profiles, setProfiles] = useState<
+    { user_id: string; full_name: string }[]
+  >([]);
+
   const [inspectForm, setInspectForm] = useState({
     name: "",
     framework: "ISO 9001",
     scheduled_date: "",
-    assignees: [] as string[],
+    assignee_ids: [] as string[],
+
   });
 
   const [resolveForm, setResolveForm] = useState({
@@ -241,25 +247,36 @@ function Page() {
       } = await supabase.auth.getUser();
       setCurrentUserId(user?.id ?? null);
 
-      const [{ data: fwData }, { data: insData }, { data: ncrData }] =
-        await Promise.all([
-          supabase
-            .from("compliance_frameworks")
-            .select("*")
-            .order("name", { ascending: true }),
-          supabase
-            .from("inspections")
-            .select("*")
-            .order("scheduled_date", { ascending: true }),
-          supabase
-            .from("ncrs")
-            .select("*")
-            .order("created_at", { ascending: false }),
-        ]);
+      const [
+        { data: fwData },
+        { data: insData },
+        { data: ncrData },
+        { data: profData },
+      ] = await Promise.all([
+        supabase
+          .from("compliance_frameworks")
+          .select("*")
+          .order("name", { ascending: true }),
+        supabase
+          .from("inspections")
+          .select("*")
+          .order("scheduled_date", { ascending: true }),
+        supabase
+          .from("ncrs")
+          .select("*")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("user_profiles")
+          .select("user_id, full_name")
+          .order("full_name", { ascending: true }),
+      ]);
+
 
       setFrameworks(fwData || []);
       setInspections(insData || []);
       setNcrs(ncrData || []);
+      setProfiles(profData || []);
+
 
       // Check and auto-mark overdue inspections (non-blocking)
       if (insData && insData.length > 0) {
@@ -277,9 +294,8 @@ function Page() {
   // Notifications go to `created_by` only — the person who scheduled the inspection.
   // Assignees are stored as free-text names (no user-ID directory exists), so
   // we cannot resolve them to UUIDs; the assigner is the accountable party in-app.
-  const checkAndMarkOverdue = async (
-    inspectionList: Inspection[],
-  ) => {
+  const checkAndMarkOverdue = async (inspectionList: Inspection[]) => {
+
     const now = new Date();
     const overdueItems = inspectionList.filter(
       (i) => i.status === "Pending" && new Date(i.scheduled_date) < now,
@@ -389,29 +405,40 @@ function Page() {
         data: { user },
       } = await supabase.auth.getUser();
 
+      const selectedNames = inspectForm.assignee_ids
+        .map((id) => profiles.find((p) => p.user_id === id)?.full_name)
+        .filter(Boolean) as string[];
+      const assigned_to = selectedNames.join(", ") || null;
+
+
       const { error } = await supabase.from("inspections").insert({
         name: inspectForm.name,
         framework: inspectForm.framework,
         scheduled_date: new Date(inspectForm.scheduled_date).toISOString(),
         status: "Pending",
-        assigned_to: inspectForm.assignees.join(", ") || null,
+        assigned_to: assigned_to,
+        assignee_ids: inspectForm.assignee_ids,
+
         created_by: user?.id ?? null,
       });
       if (error) throw error;
 
-      // Notify the assigner (current user) with one summary notification.
-      // Assignees are free-text names — no user-ID directory exists to resolve
-      // them to UUIDs — so per-assignee push notifications are not possible.
-      // The assigner's feed receives a single record listing everyone assigned.
-      if (user && inspectForm.assignees.length > 0) {
-        const scheduledStr = new Date(inspectForm.scheduled_date).toLocaleString();
-        const assigneeList = inspectForm.assignees.join(", ");
-        await insertNotification(
-          user.id,
-          `Inspection scheduled: ${inspectForm.name}`,
-          `Assigned to ${assigneeList} — "${inspectForm.name}" (${inspectForm.framework}) scheduled for ${scheduledStr}.`,
-          "info",
-          "medium",
+      // Notify every assignee individually
+      if (inspectForm.assignee_ids.length > 0) {
+        const scheduledStr = new Date(
+          inspectForm.scheduled_date,
+        ).toLocaleString();
+        await Promise.all(
+          inspectForm.assignee_ids.map((assigneeId) =>
+            insertNotification(
+              assigneeId,
+              `Inspection assigned: ${inspectForm.name}`,
+              `You have been assigned to "${inspectForm.name}" (${inspectForm.framework}) scheduled for ${scheduledStr}.`,
+              "info",
+              "medium",
+            ),
+          ),
+
         );
       }
 
@@ -421,7 +448,8 @@ function Page() {
         name: "",
         framework: frameworks[0]?.name || "ISO 9001",
         scheduled_date: "",
-        assignees: [],
+        assignee_ids: [],
+
       });
       fetchData();
     } catch (err: unknown) {
@@ -476,7 +504,10 @@ function Page() {
         .eq("id", selectedNcr.id);
       if (error) throw error;
 
-      const newScore = await recalcFrameworkScore(selectedNcr.framework_ref || "");
+      const newScore = await recalcFrameworkScore(
+        selectedNcr.framework_ref || "",
+      );
+
       toast.success(
         `NCR ${selectedNcr.ncr_number} resolved. ${selectedNcr.framework_ref} score updated to ${newScore}%`,
       );
@@ -518,7 +549,10 @@ function Page() {
   }, [inspections, currentUserId]);
 
   const myPending = myInspections.filter((i) => i.status === "Pending").length;
-  const myCompleted = myInspections.filter((i) => i.status === "Completed").length;
+  const myCompleted = myInspections.filter(
+    (i) => i.status === "Completed",
+  ).length;
+
   const myOverdue = myInspections.filter((i) => i.status === "Overdue").length;
 
   // ── on-time trend + NCR trend (item 12d) ──
@@ -533,8 +567,8 @@ function Page() {
       const monthInspections = inspections.filter((ins) => {
         const sd = new Date(ins.scheduled_date);
         return (
-          sd.getFullYear() === d.getFullYear() &&
-          sd.getMonth() === d.getMonth()
+          sd.getFullYear() === d.getFullYear() && sd.getMonth() === d.getMonth()
+
         );
       });
       const monthNcrs = ncrs.filter((n) => {
@@ -546,12 +580,29 @@ function Page() {
       });
 
       const total = monthInspections.length;
-      const completed = monthInspections.filter((ins) => ins.status === "Completed").length;
+      const completed = monthInspections.filter(
+        (ins) => ins.status === "Completed",
+      ).length;
+
       const rate = total > 0 ? Math.round((completed / total) * 100) : null;
 
       result.push({
         m: label,
-        rate: rate ?? (i === 0 ? completedInspectionsCount > 0 ? Math.round((completedInspectionsCount / Math.max(pendingInspectionsCount + completedInspectionsCount, 1)) * 100) : 100 : 100),
+        rate:
+          rate ??
+          (i === 0
+            ? completedInspectionsCount > 0
+              ? Math.round(
+                  (completedInspectionsCount /
+                    Math.max(
+                      pendingInspectionsCount + completedInspectionsCount,
+                      1,
+                    )) *
+                    100,
+                )
+              : 100
+            : 100),
+
         ncrs: monthNcrs.length,
         _monthKey: monthKey,
       });
@@ -660,21 +711,39 @@ function Page() {
         <div className="mt-4 rounded-2xl border border-border bg-card p-5">
           <div className="flex items-center gap-2 mb-4">
             <UserCheck className="h-4 w-4 text-accent" />
-            <h3 className="font-display font-semibold">My Assigned Inspections</h3>
-            <span className="text-xs text-muted-foreground">— inspections you scheduled</span>
+            <h3 className="font-display font-semibold">
+              My Assigned Inspections
+            </h3>
+            <span className="text-xs text-muted-foreground">
+              — inspections you scheduled
+            </span>
+
           </div>
           <div className="grid gap-3 sm:grid-cols-3 mb-4">
             {[
               { l: "Pending", v: myPending, tone: "warning", I: Clock },
-              { l: "Completed", v: myCompleted, tone: "emerald", I: CheckCircle2 },
+              {
+                l: "Completed",
+                v: myCompleted,
+                tone: "emerald",
+                I: CheckCircle2,
+              },
               { l: "Overdue", v: myOverdue, tone: "danger", I: TriangleAlert },
             ].map(({ l, v, tone, I }) => (
-              <div key={l} className="rounded-xl border border-border p-3 flex items-center gap-3">
-                <div className={`grid h-8 w-8 place-items-center rounded-lg shrink-0 ${
-                  tone === "emerald" ? "bg-emerald/10 text-emerald"
-                  : tone === "danger" ? "bg-destructive/10 text-destructive"
-                  : "bg-orange-500/10 text-orange-500"
-                }`}>
+              <div
+                key={l}
+                className="rounded-xl border border-border p-3 flex items-center gap-3"
+              >
+                <div
+                  className={`grid h-8 w-8 place-items-center rounded-lg shrink-0 ${
+                    tone === "emerald"
+                      ? "bg-emerald/10 text-emerald"
+                      : tone === "danger"
+                        ? "bg-destructive/10 text-destructive"
+                        : "bg-orange-500/10 text-orange-500"
+                  }`}
+                >
+
                   <I className="h-4 w-4" />
                 </div>
                 <div>
@@ -687,23 +756,41 @@ function Page() {
           {myInspections.length > 0 && (
             <div className="space-y-2">
               {myInspections.map((it) => {
-                const dateStr = new Date(it.scheduled_date).toLocaleDateString(undefined, {
-                  day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
-                });
+                const dateStr = new Date(it.scheduled_date).toLocaleDateString(
+                  undefined,
+                  {
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  },
+                );
                 const statusColor =
-                  it.status === "Completed" ? "text-emerald bg-emerald/10 border-emerald/20"
-                  : it.status === "Overdue" ? "text-destructive bg-destructive/10 border-destructive/20"
-                  : "text-orange-500 bg-orange-500/10 border-orange-500/20";
+                  it.status === "Completed"
+                    ? "text-emerald bg-emerald/10 border-emerald/20"
+                    : it.status === "Overdue"
+                      ? "text-destructive bg-destructive/10 border-destructive/20"
+                      : "text-orange-500 bg-orange-500/10 border-orange-500/20";
                 return (
-                  <div key={it.id} className="flex items-center gap-3 border-b border-border last:border-0 py-1.5">
+                  <div
+                    key={it.id}
+                    className="flex items-center gap-3 border-b border-border last:border-0 py-1.5"
+                  >
                     <Calendar className="h-3.5 w-3.5 text-accent shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm truncate">{it.name}</div>
+                      <div className="font-medium text-sm truncate">
+                        {it.name}
+                      </div>
                       <div className="text-xs text-muted-foreground">
-                        {it.framework}{it.assigned_to ? ` · ${it.assigned_to}` : ""} · {dateStr}
+                        {it.framework}
+                        {it.assigned_to ? ` · ${it.assigned_to}` : ""} ·{" "}
+                        {dateStr}
                       </div>
                     </div>
-                    <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${statusColor}`}>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${statusColor}`}
+                    >
+
                       {it.status}
                     </span>
                     {(it.status === "Pending" || it.status === "Overdue") && (
@@ -723,7 +810,9 @@ function Page() {
           )}
           {myInspections.length === 0 && (
             <p className="text-xs text-muted-foreground italic">
-              No inspections assigned by you yet. Use "Schedule Inspection" to create one.
+              No inspections assigned by you yet. Use "Schedule Inspection" to
+              create one.
+
             </p>
           )}
         </div>
@@ -763,7 +852,10 @@ function Page() {
         {/* On-Time Completion Trend + NCR Count — item 12d */}
         <div className="rounded-2xl border border-border bg-card p-5">
           <h3 className="font-display font-semibold mb-1">Compliance Trend</h3>
-          <p className="text-[11px] text-muted-foreground mb-3">On-time rate vs NCR count</p>
+          <p className="text-[11px] text-muted-foreground mb-3">
+            On-time rate vs NCR count
+          </p>
+
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={trendData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -805,7 +897,10 @@ function Page() {
           {overdueInspectionsCount > 0 && (
             <div className="mb-3 rounded-lg bg-destructive/8 border border-destructive/20 px-3 py-2 flex items-center gap-2 text-xs text-destructive">
               <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
-              {overdueInspectionsCount} inspection{overdueInspectionsCount > 1 ? "s" : ""} overdue — assignees and schedulers have been notified.
+              {overdueInspectionsCount} inspection
+              {overdueInspectionsCount > 1 ? "s" : ""} overdue — assignees and
+              schedulers have been notified.
+
             </div>
           )}
           <div className="space-y-3">
@@ -827,7 +922,10 @@ function Page() {
                     key={it.id}
                     className="flex items-center gap-3 border-b border-border last:border-0 py-2"
                   >
-                    <Clock className={`h-4 w-4 shrink-0 ${isOverdue ? "text-destructive" : "text-accent"}`} />
+                    <Clock
+                      className={`h-4 w-4 shrink-0 ${isOverdue ? "text-destructive" : "text-accent"}`}
+                    />
+
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-sm truncate">
                         {it.name}
@@ -1095,15 +1193,48 @@ function Page() {
                 <label className="block text-muted-foreground mb-1">
                   Assigned Inspectors
                 </label>
-                <ChipInput
-                  values={inspectForm.assignees}
-                  onChange={(v) =>
-                    setInspectForm({ ...inspectForm, assignees: v })
-                  }
-                  placeholder="Type a name and press Enter or comma…"
-                />
+                <div className="max-h-32 overflow-y-auto border border-border rounded-lg p-2 space-y-1.5 bg-background">
+                  {profiles.map((p) => (
+                    <label
+                      key={p.user_id}
+                      className="flex items-center gap-2 cursor-pointer text-xs"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={inspectForm.assignee_ids.includes(p.user_id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setInspectForm({
+                              ...inspectForm,
+                              assignee_ids: [
+                                ...inspectForm.assignee_ids,
+                                p.user_id,
+                              ],
+                            });
+                          } else {
+                            setInspectForm({
+                              ...inspectForm,
+                              assignee_ids: inspectForm.assignee_ids.filter(
+                                (id) => id !== p.user_id,
+                              ),
+                            });
+                          }
+                        }}
+                        className="accent-accent"
+                      />
+                      <span>{p.full_name || p.user_id}</span>
+                    </label>
+                  ))}
+                  {profiles.length === 0 && (
+                    <span className="text-muted-foreground italic text-[11px]">
+                      No inspector profiles found
+                    </span>
+                  )}
+                </div>
                 <p className="text-[10px] text-muted-foreground mt-1">
-                  Each assignee will be logged as a notification. Press Enter or comma after each name.
+                  Select team members to assign to this inspection. Each
+                  assignee will receive an individual notification.
+
                 </p>
               </div>
             </div>

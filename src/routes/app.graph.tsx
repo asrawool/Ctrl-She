@@ -189,9 +189,10 @@ function Graph() {
       (ncrData || []).forEach((n, index) => {
         const ncrId = `ncr-${n.id}`;
         const linkedAsset =
-          assetNodesList.find((an) =>
-            n.framework_ref &&
-            an.label.toLowerCase().includes(n.framework_ref.toLowerCase()),
+          assetNodesList.find(
+            (an) =>
+              n.framework_ref &&
+              an.label.toLowerCase().includes(n.framework_ref.toLowerCase()),
           ) || assetNodesList[index % Math.max(assetNodesList.length, 1)];
 
         let x = 600 + (index % 3) * 90;
@@ -449,7 +450,13 @@ function Graph() {
                       cy={n.y}
                       r={r}
                       fill={COLORS[n.type]}
-                      stroke={isSelected ? "#fff" : isHovered ? "rgba(255,255,255,0.6)" : "none"}
+                      stroke={
+                        isSelected
+                          ? "#fff"
+                          : isHovered
+                            ? "rgba(255,255,255,0.6)"
+                            : "none"
+                      }
                       strokeWidth={isSelected ? 2.5 : 1.5}
                     />
                     <text

@@ -78,7 +78,10 @@ function Dashboard() {
     return d;
   });
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
-  const [reminderForm, setReminderForm] = useState({ description: "", due_at: "" });
+  const [reminderForm, setReminderForm] = useState({
+    description: "",
+    due_at: "",
+  });
   const [savingReminder, setSavingReminder] = useState(false);
 
   const roleLabel =
@@ -552,7 +555,10 @@ function Dashboard() {
                       </span>
                     )}
                     {hasReminder && (
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-orange-400" title="Reminder" />
+                      <span
+                        className="inline-block h-1.5 w-1.5 rounded-full bg-orange-400"
+                        title="Reminder"
+                      />
                     )}
                   </div>
                 </div>
@@ -580,19 +586,29 @@ function Dashboard() {
           reminderForm={reminderForm}
           setReminderForm={setReminderForm}
           savingReminder={savingReminder}
-          onClose={() => { setShowCalendar(false); setSelectedDay(null); }}
+          onClose={() => {
+            setShowCalendar(false);
+            setSelectedDay(null);
+          }}
           onSaveReminder={async () => {
-            if (!reminderForm.description.trim() || !reminderForm.due_at) return;
+            if (!reminderForm.description.trim() || !reminderForm.due_at)
+              return;
             setSavingReminder(true);
             try {
-              const { data: { user } } = await supabase.auth.getUser();
+              const {
+                data: { user },
+              } = await supabase.auth.getUser();
               if (!user) return;
-              const { data, error } = await supabase.from("reminders").insert({
-                user_id: user.id,
-                description: reminderForm.description.trim(),
-                due_at: new Date(reminderForm.due_at).toISOString(),
-                is_notified: false,
-              }).select().single();
+              const { data, error } = await supabase
+                .from("reminders")
+                .insert({
+                  user_id: user.id,
+                  description: reminderForm.description.trim(),
+                  due_at: new Date(reminderForm.due_at).toISOString(),
+                  is_notified: false,
+                })
+                .select()
+                .single();
               if (error) throw error;
               setReminders((prev) => [...prev, data as Reminder]);
               setReminderForm({ description: "", due_at: "" });
@@ -810,7 +826,9 @@ function CalendarModal({
 
         {/* Month navigation */}
         <div className="flex items-center justify-between mb-5">
-          <h3 className="font-display text-lg font-bold">Maintenance Calendar</h3>
+          <h3 className="font-display text-lg font-bold">
+            Maintenance Calendar
+          </h3>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -819,7 +837,9 @@ function CalendarModal({
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <span className="text-sm font-semibold w-36 text-center">{monthLabel}</span>
+            <span className="text-sm font-semibold w-36 text-center">
+              {monthLabel}
+            </span>
             <button
               type="button"
               onClick={nextMonth}
@@ -893,7 +913,9 @@ function CalendarModal({
         {/* Legend */}
         <div className="flex items-center gap-4 mt-3 text-[10px] text-muted-foreground">
           <div className="flex items-center gap-1">
-            <span className="rounded-full bg-accent/15 text-accent font-bold px-1.5">N</span>
+            <span className="rounded-full bg-accent/15 text-accent font-bold px-1.5">
+              N
+            </span>
             Work orders due
           </div>
           <div className="flex items-center gap-1">
@@ -924,18 +946,25 @@ function CalendarModal({
             </div>
             <div className="space-y-2 text-xs">
               <div>
-                <label className="block text-muted-foreground mb-1">Description</label>
+                <label className="block text-muted-foreground mb-1">
+                  Description
+                </label>
                 <input
                   placeholder="e.g. Check pressure relief valves"
                   value={reminderForm.description}
                   onChange={(e) =>
-                    setReminderForm({ ...reminderForm, description: e.target.value })
+                    setReminderForm({
+                      ...reminderForm,
+                      description: e.target.value,
+                    })
                   }
                   className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
                 />
               </div>
               <div>
-                <label className="block text-muted-foreground mb-1">Due date & time</label>
+                <label className="block text-muted-foreground mb-1">
+                  Due date & time
+                </label>
                 <input
                   type="datetime-local"
                   value={reminderForm.due_at}

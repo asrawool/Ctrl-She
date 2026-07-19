@@ -111,8 +111,6 @@ function Page() {
     corrective_actions: "",
   });
 
-
-
   // Keep form fields synced with loaded real-time spare parts
   useEffect(() => {
     if (spareParts.length > 0) {

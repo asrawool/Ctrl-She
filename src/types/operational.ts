@@ -178,3 +178,20 @@ export interface Notification {
   };
   created_at: string;
 }
+
+export interface PurchaseRequest {
+  id: string;
+  item_name: string;
+  item_type: "asset" | "spare_part";
+  quantity: number;
+  priority: "Low" | "Medium" | "High" | "Critical";
+  justification: string;
+  supporting_documents?: string[];
+  status:
+    "Pending" | "Approved" | "Rejected" | "Modification Requested" | "Procured";
+  created_by: string;
+  modification_notes?: string;
+  linked_asset_id?: string;
+  created_at?: string;
+  updated_at?: string;
+}

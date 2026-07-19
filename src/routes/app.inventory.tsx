@@ -142,7 +142,10 @@ function Page() {
     try {
       const [assetsRes, partsRes] = await Promise.all([
         supabase.from("assets").select("*").order("name", { ascending: true }),
-        supabase.from("spare_parts").select("*").order("name", { ascending: true }),
+        supabase
+          .from("spare_parts")
+          .select("*")
+          .order("name", { ascending: true }),
       ]);
 
       if (assetsRes.error) throw assetsRes.error;
@@ -364,29 +367,49 @@ function Page() {
     const operational = assets.filter((a) => a.status === "Operational").length;
     const maintenance = assets.filter((a) => a.status === "Maintenance").length;
     const reserved = assets.filter((a) => a.status === "Reserved").length;
-    const criticalHealth = assets.filter((a) => a.health_status === "critical").length;
+    const criticalHealth = assets.filter(
+      (a) => a.health_status === "critical",
+    ).length;
 
     return [
       { i: Boxes, l: "Total Equipment", v: total, tone: "cyan" },
       { i: PackageCheck, l: "Operational", v: operational, tone: "emerald" },
       { i: Wrench, l: "Under Maintenance", v: maintenance, tone: "warning" },
       { i: ShoppingCart, l: "Reserved", v: reserved, tone: "cyan" },
-      { i: AlertTriangle, l: "Critical Health", v: criticalHealth, tone: "destructive" },
+      {
+        i: AlertTriangle,
+        l: "Critical Health",
+        v: criticalHealth,
+        tone: "destructive",
+      },
     ];
   }, [assets]);
 
   const sparesKpis = useMemo(() => {
     const total = parts.length;
-    const inStock = sparesWithStatus.filter((p) => p.stock === "In Stock").length;
-    const lowStock = sparesWithStatus.filter((p) => p.stock === "Low Stock").length;
-    const outOfStock = sparesWithStatus.filter((p) => p.stock === "Out of Stock").length;
-    const reserved = sparesWithStatus.filter((p) => p.stock === "Reserved").length;
+    const inStock = sparesWithStatus.filter(
+      (p) => p.stock === "In Stock",
+    ).length;
+    const lowStock = sparesWithStatus.filter(
+      (p) => p.stock === "Low Stock",
+    ).length;
+    const outOfStock = sparesWithStatus.filter(
+      (p) => p.stock === "Out of Stock",
+    ).length;
+    const reserved = sparesWithStatus.filter(
+      (p) => p.stock === "Reserved",
+    ).length;
 
     return [
       { i: Boxes, l: "Total Part Types", v: total, tone: "cyan" },
       { i: PackageCheck, l: "In Stock", v: inStock, tone: "emerald" },
       { i: TrendingDown, l: "Low Stock", v: lowStock, tone: "warning" },
-      { i: AlertTriangle, l: "Out of Stock", v: outOfStock, tone: "destructive" },
+      {
+        i: AlertTriangle,
+        l: "Out of Stock",
+        v: outOfStock,
+        tone: "destructive",
+      },
       { i: ShoppingCart, l: "Reserved Stock", v: reserved, tone: "cyan" },
     ];
   }, [parts, sparesWithStatus]);
@@ -486,7 +509,10 @@ function Page() {
   const handleExportPdf = () => {
     const kpisList = activeTab === "assets" ? assetKpis : sparesKpis;
     exportPdfReport({
-      title: activeTab === "assets" ? "Equipment Assets Report" : "Spare Parts Stock Report",
+      title:
+        activeTab === "assets"
+          ? "Equipment Assets Report"
+          : "Spare Parts Stock Report",
       subtitle:
         activeTab === "assets"
           ? "Critical health metrics, remaining useful life and operational states"
@@ -494,11 +520,19 @@ function Page() {
       kpis: kpisList.map((k) => ({ label: k.l, value: String(k.v) })),
       sections: [
         {
-          heading: activeTab === "assets" ? "Equipment Snapshot" : "Parts Snapshot",
+          heading:
+            activeTab === "assets" ? "Equipment Snapshot" : "Parts Snapshot",
           columns:
             activeTab === "assets"
               ? ["Asset", "Code", "Category", "Location", "Health %", "Status"]
-              : ["Part Name", "Code", "Location", "Qty", "Reorder Pt", "Status"],
+              : [
+                  "Part Name",
+                  "Code",
+                  "Location",
+                  "Qty",
+                  "Reorder Pt",
+                  "Status",
+                ],
           rows:
             activeTab === "assets"
               ? filteredAssets.map((a) => [
@@ -572,7 +606,9 @@ function Page() {
                     ...f,
                     category: activeTab === "assets" ? "Motors" : "Bearings",
                   }));
-                  setSelectedCategory(activeTab === "assets" ? "Motors" : "Bearings");
+                  setSelectedCategory(
+                    activeTab === "assets" ? "Motors" : "Bearings",
+                  );
                   setShowItemModal(true);
                 }}
                 className="h-9 text-xs btn-hero"
@@ -736,14 +772,21 @@ function Page() {
                       <td className="px-4 py-3 text-muted-foreground font-mono">
                         {a.asset_code}
                       </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground font-mono max-w-[100px] truncate" title={a.id}>
+                      <td
+                        className="px-4 py-3 text-xs text-muted-foreground font-mono max-w-[100px] truncate"
+                        title={a.id}
+                      >
                         {a.id}
                       </td>
                       <td className="px-4 py-3">{a.category}</td>
                       <td className="px-4 py-3">{a.manufacturer}</td>
                       <td className="px-4 py-3">{a.location}</td>
-                      <td className="px-4 py-3 font-semibold">{a.health_percentage}%</td>
-                      <td className="px-4 py-3 text-muted-foreground">{a.rul_days} d</td>
+                      <td className="px-4 py-3 font-semibold">
+                        {a.health_percentage}%
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {a.rul_days} d
+                      </td>
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
@@ -821,17 +864,28 @@ function Page() {
                     <td className="px-4 py-3 text-muted-foreground font-mono">
                       {p.part_code}
                     </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground font-mono max-w-[100px] truncate" title={p.id}>
+                    <td
+                      className="px-4 py-3 text-xs text-muted-foreground font-mono max-w-[100px] truncate"
+                      title={p.id}
+                    >
                       {p.id}
                     </td>
                     <td className="px-4 py-3">{p.category}</td>
                     <td className="px-4 py-3">{p.manufacturer}</td>
                     <td className="px-4 py-3">{p.location}</td>
                     <td className="px-4 py-3 font-semibold">{p.current_qty}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.min_qty}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.max_qty}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.reorder_point}</td>
-                    <td className="px-4 py-3">₹{p.unit_cost.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {p.min_qty}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {p.max_qty}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {p.reorder_point}
+                    </td>
+                    <td className="px-4 py-3">
+                      ₹{p.unit_cost.toLocaleString()}
+                    </td>
                     <td className="px-4 py-3">{p.supplier}</td>
                     <td className="px-4 py-3">
                       <span
@@ -940,7 +994,9 @@ function Page() {
               type="button"
               onClick={() => {
                 setShowItemModal(false);
-                setSelectedCategory(activeTab === "assets" ? "Motors" : "Bearings");
+                setSelectedCategory(
+                  activeTab === "assets" ? "Motors" : "Bearings",
+                );
                 setCustomCategory("");
               }}
               className="absolute right-4 top-4 text-muted-foreground hover:text-foreground"
@@ -952,9 +1008,7 @@ function Page() {
             </h3>
             <div className="space-y-3 text-xs max-h-[350px] overflow-y-auto pr-1">
               <div>
-                <label className="block text-muted-foreground mb-1">
-                  Name
-                </label>
+                <label className="block text-muted-foreground mb-1">Name</label>
                 <input
                   required
                   placeholder={
@@ -975,7 +1029,9 @@ function Page() {
                 </label>
                 <input
                   required
-                  placeholder={activeTab === "assets" ? "e.g. P-401" : "e.g. SP-001"}
+                  placeholder={
+                    activeTab === "assets" ? "e.g. P-401" : "e.g. SP-001"
+                  }
                   value={itemForm.item_code}
                   onChange={(e) =>
                     setItemForm({ ...itemForm, item_code: e.target.value })
@@ -1191,7 +1247,8 @@ function Page() {
                   onChange={(e) =>
                     setItemForm({
                       ...itemForm,
-                      status: e.target.value as "Operational" | "Maintenance" | "Reserved",
+                      status: e.target.value as
+                        "Operational" | "Maintenance" | "Reserved",
                     })
                   }
                   className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
@@ -1209,7 +1266,9 @@ function Page() {
                 className="w-full text-xs h-8"
                 onClick={() => {
                   setShowItemModal(false);
-                  setSelectedCategory(activeTab === "assets" ? "Motors" : "Bearings");
+                  setSelectedCategory(
+                    activeTab === "assets" ? "Motors" : "Bearings",
+                  );
                   setCustomCategory("");
                 }}
               >
