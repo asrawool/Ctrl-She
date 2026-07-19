@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Notification } from "@/types/operational";
+import { useAuth } from "@/store/auth";
 
 export const Route = createFileRoute("/app/notifications")({
   head: () => ({ meta: [{ title: "Notifications — IntelliPlant AI" }] }),
@@ -45,71 +46,22 @@ function Page() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: fetchRes, error } = await supabase
-        .from("notifications")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+      const userRole = useAuth.getState().role;
 
-      let data = fetchRes;
+      let query = supabase.from("notifications").select("*");
+      if (userRole) {
+        query = query.or(
+          `user_id.eq.${user.id},and(user_id.is.null,metadata->>role.eq.${userRole})`,
+        );
+      } else {
+        query = query.eq("user_id", user.id);
+      }
+
+      const { data, error } = await query.order("created_at", {
+        ascending: false,
+      });
 
       if (error) throw error;
-
-      // Seed if completely empty
-      if (!data || data.length === 0) {
-        const seedData = [
-          {
-            user_id: user.id,
-            title: "Vibration anomaly on P-401",
-            message: "Sensor exceeded threshold 4.2 mm/s at 14:22.",
-            type: "warning",
-            metadata: { category: "maintenance", priority: "high" },
-            is_read: false,
-          },
-          {
-            user_id: user.id,
-            title: "ISO 9001 audit completed",
-            message: "Score 96/100. 3 minor findings assigned.",
-            type: "info",
-            metadata: { category: "compliance", priority: "medium" },
-            is_read: false,
-          },
-          {
-            user_id: user.id,
-            title: "New SOP: Reactor R-3 start-up",
-            message: "v4.1 uploaded and approved by document controller.",
-            type: "info",
-            metadata: { category: "documents", priority: "low" },
-            is_read: true,
-          },
-          {
-            user_id: user.id,
-            title: "AI insight generated",
-            message:
-              "Fleet-wide lube interval optimization opportunity detected.",
-            type: "info",
-            metadata: { category: "ai", priority: "medium" },
-            is_read: false,
-          },
-          {
-            user_id: user.id,
-            title: "Weekly digest ready",
-            message: "Your weekly operations summary is available to download.",
-            type: "info",
-            metadata: { category: "system", priority: "low" },
-            is_read: true,
-          },
-        ];
-
-        const { data: inserted, error: insertError } = await supabase
-          .from("notifications")
-          .insert(seedData)
-          .select();
-
-        if (!insertError && inserted) {
-          data = inserted;
-        }
-      }
 
       setItems(data || []);
     } catch (err) {
@@ -131,10 +83,18 @@ function Page() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { error } = await supabase
-        .from("notifications")
-        .update({ is_read: true })
-        .eq("user_id", user.id);
+      const userRole = useAuth.getState().role;
+
+      let query = supabase.from("notifications").update({ is_read: true });
+      if (userRole) {
+        query = query.or(
+          `user_id.eq.${user.id},and(user_id.is.null,metadata->>role.eq.${userRole})`,
+        );
+      } else {
+        query = query.eq("user_id", user.id);
+      }
+
+      const { error } = await query;
 
       if (error) throw error;
       setItems((prev) => prev.map((n) => ({ ...n, is_read: true })));

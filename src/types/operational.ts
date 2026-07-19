@@ -21,6 +21,7 @@ export interface WorkOrder {
   priority: string;
   status: string;
   assigned_to?: string;
+  assignee_id?: string;
   created_by?: string;
   due_date?: string;
   completed_at?: string;
@@ -74,6 +75,7 @@ export interface Inspection {
   scheduled_date: string;
   status: string;
   assigned_to?: string;
+  assignee_ids?: string[];
   created_by?: string;
   completed_at?: string;
 }

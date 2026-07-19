@@ -38,18 +38,19 @@ export const Route = createFileRoute("/app/quality")({
 });
 
 async function insertNotification(
-  userId: string,
+  userId: string | null,
   title: string,
   message: string,
   type: string = "info",
   priority: "high" | "medium" | "low" = "medium",
+  role?: string,
 ) {
   const { data, error } = await supabase.rpc("create_notification", {
     target_user_id: userId,
     title,
     message,
     type,
-    metadata: { category: "compliance", priority },
+    metadata: { category: "compliance", priority, role },
   });
   if (error) {
     console.error("Failed to insert notification via RPC:", error);
@@ -198,7 +199,6 @@ function CreatableCombobox({
   );
 }
 
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 function Page() {
   const { role } = useAuth();
@@ -234,7 +234,6 @@ function Page() {
     framework: "ISO 9001",
     scheduled_date: "",
     assignee_ids: [] as string[],
-
   });
 
   const [resolveForm, setResolveForm] = useState({
@@ -273,12 +272,10 @@ function Page() {
           .order("full_name", { ascending: true }),
       ]);
 
-
       setFrameworks(fwData || []);
       setInspections(insData || []);
       setNcrs(ncrData || []);
       setProfiles(profData || []);
-
 
       // Check and auto-mark overdue inspections (non-blocking)
       if (insData && insData.length > 0) {
@@ -297,7 +294,6 @@ function Page() {
   // Assignees are stored as free-text names (no user-ID directory exists), so
   // we cannot resolve them to UUIDs; the assigner is the accountable party in-app.
   const checkAndMarkOverdue = async (inspectionList: Inspection[]) => {
-
     const now = new Date();
     const overdueItems = inspectionList.filter(
       (i) => i.status === "Pending" && new Date(i.scheduled_date) < now,
@@ -322,22 +318,28 @@ function Page() {
       ),
     );
 
-    // Notify the assigner (created_by) for each overdue inspection.
-    // We deliberately do NOT notify the current viewer: they may be a different
-    // user browsing the page who has no stake in the inspection.
-    await Promise.all(
-      overdueItems
-        .filter((item) => Boolean(item.created_by))
-        .map((item) =>
-          insertNotification(
-            item.created_by!,
-            `Inspection overdue: ${item.name}`,
-            `"${item.name}" (${item.framework}) scheduled for ${new Date(item.scheduled_date).toLocaleDateString()} is now overdue. Assignee(s): ${item.assigned_to || "none listed"}.`,
-            "warning",
-            "high",
-          ),
-        ),
-    );
+    // Notify the assigner (created_by) and assignees for each overdue inspection.
+    const notifPromises: Promise<void>[] = [];
+    for (const item of overdueItems) {
+      const title = `Inspection overdue: ${item.name}`;
+      const msg = `"${item.name}" (${item.framework}) scheduled for ${new Date(item.scheduled_date).toLocaleDateString()} is now overdue. Assignee(s): ${item.assigned_to || "none listed"}.`;
+
+      if (item.created_by) {
+        notifPromises.push(
+          insertNotification(item.created_by, title, msg, "warning", "high"),
+        );
+      }
+      if (item.assignee_ids && item.assignee_ids.length > 0) {
+        for (const assigneeId of item.assignee_ids) {
+          notifPromises.push(
+            insertNotification(assigneeId, title, msg, "warning", "high"),
+          );
+        }
+      }
+    }
+    if (notifPromises.length > 0) {
+      await Promise.all(notifPromises);
+    }
   };
 
   // ── recalc framework score ──
@@ -391,9 +393,43 @@ function Page() {
         framework_ref: ncrForm.framework_ref,
       });
       if (error) throw error;
+
+      // Notify quality_engineer and safety_officer roles
+      await Promise.all([
+        insertNotification(
+          null,
+          `New NCR Logged: ${ncrForm.ncr_number}`,
+          `A new Non-Conformance Report (${ncrForm.ncr_number}) has been logged for ${ncrForm.framework_ref} (Severity: ${ncrForm.severity}).`,
+          "info",
+          ncrForm.severity === "High"
+            ? "high"
+            : ncrForm.severity === "Low"
+              ? "low"
+              : "medium",
+          "quality_engineer",
+        ),
+        insertNotification(
+          null,
+          `New NCR Logged: ${ncrForm.ncr_number}`,
+          `A new Non-Conformance Report (${ncrForm.ncr_number}) has been logged for ${ncrForm.framework_ref} (Severity: ${ncrForm.severity}).`,
+          "info",
+          ncrForm.severity === "High"
+            ? "high"
+            : ncrForm.severity === "Low"
+              ? "low"
+              : "medium",
+          "safety_officer",
+        ),
+      ]);
+
       toast.success("NCR logged successfully");
       setShowNcrModal(false);
-      setNcrForm({ ncr_number: "", description: "", severity: "Medium", framework_ref: "ISO 9001" });
+      setNcrForm({
+        ncr_number: "",
+        description: "",
+        severity: "Medium",
+        framework_ref: "ISO 9001",
+      });
       fetchData();
     } catch (err: unknown) {
       toast.error("Failed to log NCR: " + (err as Error).message);
@@ -411,7 +447,6 @@ function Page() {
         .map((id) => profiles.find((p) => p.user_id === id)?.full_name)
         .filter(Boolean) as string[];
       const assigned_to = selectedNames.join(", ") || null;
-
 
       const { error } = await supabase.from("inspections").insert({
         name: inspectForm.name,
@@ -440,7 +475,6 @@ function Page() {
               "medium",
             ),
           ),
-
         );
       }
 
@@ -451,7 +485,6 @@ function Page() {
         framework: frameworks[0]?.name || "ISO 9001",
         scheduled_date: "",
         assignee_ids: [],
-
       });
       fetchData();
     } catch (err: unknown) {
@@ -509,6 +542,34 @@ function Page() {
       const newScore = await recalcFrameworkScore(
         selectedNcr.framework_ref || "",
       );
+
+      // Notify quality_engineer, safety_officer, and plant_manager roles
+      await Promise.all([
+        insertNotification(
+          null,
+          `NCR Resolved: ${selectedNcr.ncr_number}`,
+          `NCR ${selectedNcr.ncr_number} has been resolved. Notes: "${resolveForm.resolution_notes}"`,
+          "info",
+          "medium",
+          "quality_engineer",
+        ),
+        insertNotification(
+          null,
+          `NCR Resolved: ${selectedNcr.ncr_number}`,
+          `NCR ${selectedNcr.ncr_number} has been resolved. Notes: "${resolveForm.resolution_notes}"`,
+          "info",
+          "medium",
+          "safety_officer",
+        ),
+        insertNotification(
+          null,
+          `NCR Resolved: ${selectedNcr.ncr_number}`,
+          `NCR ${selectedNcr.ncr_number} has been resolved. Notes: "${resolveForm.resolution_notes}"`,
+          "info",
+          "medium",
+          "plant_manager",
+        ),
+      ]);
 
       toast.success(
         `NCR ${selectedNcr.ncr_number} resolved. ${selectedNcr.framework_ref} score updated to ${newScore}%`,
@@ -570,7 +631,6 @@ function Page() {
         const sd = new Date(ins.scheduled_date);
         return (
           sd.getFullYear() === d.getFullYear() && sd.getMonth() === d.getMonth()
-
         );
       });
       const monthNcrs = ncrs.filter((n) => {
@@ -719,7 +779,6 @@ function Page() {
             <span className="text-xs text-muted-foreground">
               — inspections you scheduled
             </span>
-
           </div>
           <div className="grid gap-3 sm:grid-cols-3 mb-4">
             {[
@@ -745,7 +804,6 @@ function Page() {
                         : "bg-orange-500/10 text-orange-500"
                   }`}
                 >
-
                   <I className="h-4 w-4" />
                 </div>
                 <div>
@@ -792,7 +850,6 @@ function Page() {
                     <span
                       className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${statusColor}`}
                     >
-
                       {it.status}
                     </span>
                     {(it.status === "Pending" || it.status === "Overdue") && (
@@ -814,7 +871,6 @@ function Page() {
             <p className="text-xs text-muted-foreground italic">
               No inspections assigned by you yet. Use "Schedule Inspection" to
               create one.
-
             </p>
           )}
         </div>
@@ -902,7 +958,6 @@ function Page() {
               {overdueInspectionsCount} inspection
               {overdueInspectionsCount > 1 ? "s" : ""} overdue — assignees and
               schedulers have been notified.
-
             </div>
           )}
           <div className="space-y-3">
@@ -914,7 +969,12 @@ function Page() {
               inspections.map((it) => {
                 const dateStr = new Date(it.scheduled_date).toLocaleDateString(
                   undefined,
-                  { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" },
+                  {
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  },
                 );
                 const isOverdue = it.status === "Overdue";
                 const isPending = it.status === "Pending";
@@ -1236,7 +1296,6 @@ function Page() {
                 <p className="text-[10px] text-muted-foreground mt-1">
                   Select team members to assign to this inspection. Each
                   assignee will receive an individual notification.
-
                 </p>
               </div>
             </div>

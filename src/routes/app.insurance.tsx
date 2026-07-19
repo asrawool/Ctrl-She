@@ -130,15 +130,135 @@ function Page() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      await supabase.from("notifications").insert({
-        user_id: user.id,
+      await supabase.rpc("create_notification", {
+        target_user_id: user.id,
         title,
         message,
         type: "info",
-        metadata: { source: "insurance" },
+        metadata: { category: "compliance", priority: "medium" },
       });
     } catch (err) {
-      console.error("Failed to log notification:", err);
+      console.error("Failed to log notification via RPC:", err);
+    }
+  };
+
+  const handleCheckExpiringItems = async () => {
+    try {
+      const today = new Date();
+      const in30Days = new Date();
+      in30Days.setDate(today.getDate() + 30);
+
+      // Query database for expiring/expired items
+      const [{ data: expPolicies }, { data: expLicenses }, { data: expCerts }] =
+        await Promise.all([
+          supabase
+            .from("insurance_policies")
+            .select("id, machine, policy_no, expiry_date"),
+          supabase
+            .from("machine_licenses")
+            .select("id, kind, cert_no, expiry_date"),
+          supabase.from("certifications").select("id, name, expiry_date"),
+        ]);
+
+      const expiringItems: Array<{
+        id: string;
+        name: string;
+        expiry_date: string;
+        type: "policy" | "license" | "certification";
+      }> = [];
+
+      const checkItem = (
+        id: string,
+        name: string,
+        expiryStr: string | null,
+        type: "policy" | "license" | "certification",
+      ) => {
+        if (!expiryStr) return;
+        const expiry = new Date(expiryStr);
+        if (expiry <= in30Days) {
+          expiringItems.push({ id, name, expiry_date: expiryStr, type });
+        }
+      };
+
+      (expPolicies || []).forEach((p) =>
+        checkItem(
+          p.id,
+          `${p.machine} (Policy No: ${p.policy_no})`,
+          p.expiry_date,
+          "policy",
+        ),
+      );
+      (expLicenses || []).forEach((l) =>
+        checkItem(
+          l.id,
+          `${l.kind} (Cert No: ${l.cert_no})`,
+          l.expiry_date,
+          "license",
+        ),
+      );
+      (expCerts || []).forEach((c) =>
+        checkItem(c.id, c.name, c.expiry_date, "certification"),
+      );
+
+      if (expiringItems.length === 0) {
+        toast.info("No expiring or expired items found.");
+        return;
+      }
+
+      // Fetch existing notifications from "today" (last 24 hours) to deduplicate
+      const dayAgo = new Date();
+      dayAgo.setDate(dayAgo.getDate() - 1);
+      const { data: existingNotifs } = await supabase
+        .from("notifications")
+        .select("metadata")
+        .eq("metadata->>role", "safety_officer")
+        .gte("created_at", dayAgo.toISOString());
+
+      const notifiedIds = new Set<string>();
+      (existingNotifs || []).forEach((n) => {
+        if (n.metadata && n.metadata.entity_id) {
+          notifiedIds.add(n.metadata.entity_id);
+        }
+      });
+
+      let notifiedCount = 0;
+      await Promise.all(
+        expiringItems.map(async (item) => {
+          if (notifiedIds.has(item.id)) {
+            return;
+          }
+
+          const expiry = new Date(item.expiry_date);
+          const isExpired = expiry < today;
+          const statusLabel = isExpired ? "already expired" : "expiring soon";
+          const title = `${isExpired ? "Expired" : "Expiring Soon"}: ${item.name}`;
+          const message = `The ${item.type} "${item.name}" is ${statusLabel}. Expiry date: ${new Date(item.expiry_date).toLocaleDateString()}.`;
+
+          const { error } = await supabase.rpc("create_notification", {
+            target_user_id: null,
+            title,
+            message,
+            type: isExpired ? "warning" : "info",
+            metadata: {
+              category: "compliance",
+              priority: isExpired ? "high" : "medium",
+              role: "safety_officer",
+              entity_id: item.id,
+            },
+          });
+
+          if (!error) {
+            notifiedCount++;
+          }
+        }),
+      );
+
+      toast.success(
+        `${notifiedCount} items flagged for renewal${notifiedCount < expiringItems.length ? ` (${expiringItems.length - notifiedCount} already notified)` : ""}`,
+      );
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error("Failed to run expiration checks: " + (err as Error).message);
     }
   };
 
@@ -507,6 +627,15 @@ function Page() {
         description="Track machine insurance policies, operating licenses and regulatory certifications with expiry alerts."
         actions={
           <div className="flex flex-wrap gap-2">
+            {role === "safety_officer" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCheckExpiringItems}
+              >
+                <Bell className="mr-1.5 h-3.5 w-3.5" /> Check for Expiring Items
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={handleExport}>
               <Download className="mr-1.5 h-3.5 w-3.5" /> Export CSV
             </Button>

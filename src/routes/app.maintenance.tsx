@@ -63,17 +63,22 @@ function Page() {
   const canCreateRca = hasPermission(role, "create:rca_reports");
 
   const sendWoNotification = async (
-    targetUserId: string,
+    targetUserId: string | null,
     title: string,
     message: string,
     priority: string = "medium",
+    role?: string,
   ) => {
     const { error } = await supabase.rpc("create_notification", {
       target_user_id: targetUserId,
       title,
       message,
       type: "info",
-      metadata: { category: "maintenance", priority: priority.toLowerCase() },
+      metadata: {
+        category: "maintenance",
+        priority: priority.toLowerCase(),
+        role,
+      },
     });
     if (error) {
       console.error("Failed to send work order notification via RPC:", error);
@@ -88,12 +93,16 @@ function Page() {
   const [loading, setLoading] = useState(true);
 
   // Custom states for engineer assignment and completion workflow
-  const [engineers, setEngineers] = useState<{ user_id: string; full_name: string; email: string }[]>([]);
+  const [engineers, setEngineers] = useState<
+    { user_id: string; full_name: string; email: string }[]
+  >([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [rejectWoId, setRejectWoId] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState("");
-  const [activeWoTab, setActiveWoTab] = useState<"active" | "assigned" | "history">("active");
+  const [activeWoTab, setActiveWoTab] = useState<
+    "active" | "assigned" | "history"
+  >("active");
 
   // Modal display states
   const [showAssetModal, setShowAssetModal] = useState(false);
@@ -163,7 +172,9 @@ function Page() {
         { data: rcaData },
         { data: profData },
         { data: roleData },
-        { data: { user } }
+        {
+          data: { user },
+        },
       ] = await Promise.all([
         supabase
           .from("work_orders")
@@ -173,9 +184,7 @@ function Page() {
           .from("rca_reports")
           .select("*")
           .order("created_at", { ascending: false }),
-        supabase
-          .from("user_profiles")
-          .select("user_id, full_name, email"),
+        supabase.from("user_profiles").select("user_id, full_name, email"),
         supabase
           .from("user_roles")
           .select("user_id, role")
@@ -192,7 +201,7 @@ function Page() {
 
       // Filter profiles by maintenance_engineer role
       const engProfiles = (profData || []).filter((p) =>
-        (roleData || []).some((r) => r.user_id === p.user_id)
+        (roleData || []).some((r) => r.user_id === p.user_id),
       ) as { user_id: string; full_name: string; email: string }[];
       setEngineers(engProfiles);
     } catch (e) {
@@ -231,6 +240,37 @@ function Page() {
 
       if (error) throw error;
       const selectedAsset = assets.find((a) => a.id === assetForm.id);
+
+      // Notify maintenance_engineer, reliability_engineer, and plant_manager if health changes to critical
+      if (
+        derivedHealth === "critical" &&
+        selectedAsset?.status !== "critical"
+      ) {
+        await Promise.all([
+          sendWoNotification(
+            null,
+            `Asset Health Critical: ${selectedAsset?.name || "Asset"}`,
+            `Asset ${selectedAsset?.name || "Asset"} (${selectedAsset?.asset_code || assetForm.id}) status has changed to CRITICAL (Health: ${assetForm.health_percentage}%, RUL: ${assetForm.rul_days} days).`,
+            "high",
+            "maintenance_engineer",
+          ),
+          sendWoNotification(
+            null,
+            `Asset Health Critical: ${selectedAsset?.name || "Asset"}`,
+            `Asset ${selectedAsset?.name || "Asset"} (${selectedAsset?.asset_code || assetForm.id}) status has changed to CRITICAL (Health: ${assetForm.health_percentage}%, RUL: ${assetForm.rul_days} days).`,
+            "high",
+            "reliability_engineer",
+          ),
+          sendWoNotification(
+            null,
+            `Asset Health Critical: ${selectedAsset?.name || "Asset"}`,
+            `Asset ${selectedAsset?.name || "Asset"} (${selectedAsset?.asset_code || assetForm.id}) status has changed to CRITICAL (Health: ${assetForm.health_percentage}%, RUL: ${assetForm.rul_days} days).`,
+            "high",
+            "plant_manager",
+          ),
+        ]);
+      }
+
       toast.success(
         `Asset ${selectedAsset?.asset_code || assetForm.id} updated successfully`,
       );
@@ -248,7 +288,9 @@ function Page() {
       return;
     }
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
       const { data: newWo, error } = await supabase
         .from("work_orders")
@@ -273,6 +315,24 @@ function Page() {
 
       if (error) throw error;
 
+      // Notify maintenance_engineer and reliability_engineer roles
+      await Promise.all([
+        sendWoNotification(
+          null,
+          `New Work Order Created: ${woForm.title}`,
+          `Work order "${woForm.title}" has been created (Priority: ${woForm.priority}).`,
+          woForm.priority,
+          "maintenance_engineer",
+        ),
+        sendWoNotification(
+          null,
+          `New Work Order Created: ${woForm.title}`,
+          `Work order "${woForm.title}" has been created (Priority: ${woForm.priority}).`,
+          woForm.priority,
+          "reliability_engineer",
+        ),
+      ]);
+
       // Notify the assigned engineer if assignee_id is selected
       if (woForm.assignee_id && newWo) {
         const targetAsset = assets.find((a) => a.id === woForm.asset_id);
@@ -284,7 +344,7 @@ function Page() {
           woForm.assignee_id,
           `New Work Order: ${woForm.title}`,
           `You have been assigned the work order "${woForm.title}" for ${assetName} (Priority: ${woForm.priority}), due by ${dueStr}.`,
-          woForm.priority
+          woForm.priority,
         );
       }
 
@@ -333,9 +393,9 @@ function Page() {
             targetId,
             `Work Order Completed: ${wo.title}`,
             `Work order "${wo.title}" has been marked as Completed by ${wo.assigned_to || "the engineer"} and is pending your verification.`,
-            wo.priority
-          )
-        )
+            wo.priority,
+          ),
+        ),
       );
 
       toast.success("Work order marked as Completed — Pending Verification");
@@ -361,7 +421,7 @@ function Page() {
           wo.assignee_id,
           `Work Order Verified: ${wo.title}`,
           `Your work on "${wo.title}" has been verified and closed.`,
-          wo.priority
+          wo.priority,
         );
       }
 
@@ -392,7 +452,7 @@ function Page() {
           wo.assignee_id,
           `Work Order Rework Required: ${wo.title}`,
           `Your work on "${wo.title}" was sent back for rework. Note: "${note}"`,
-          "high"
+          "high",
         );
       }
 
@@ -416,6 +476,7 @@ function Page() {
       type: "corrective",
       priority: "Medium",
       assigned_to: "",
+      assignee_id: "",
       due_date: new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 16),
       notes: `Generated from RCA Report Reference ID: ${rcaId} corrective action.`,
       source_rca_id: rcaId,
@@ -490,6 +551,26 @@ function Page() {
         .single();
 
       if (error) throw error;
+
+      // Notify reliability_engineer and maintenance_engineer roles
+      const rcaAsset = assets.find((a) => a.id === rcaForm.asset_id);
+      const rcaAssetName = rcaAsset ? rcaAsset.name : "Asset";
+      await Promise.all([
+        sendWoNotification(
+          null,
+          `RCA Report Logged: ${rcaForm.incident_ref}`,
+          `A new Root Cause Analysis (RCA) report has been logged for incident ${rcaForm.incident_ref} on asset ${rcaAssetName}.`,
+          "medium",
+          "reliability_engineer",
+        ),
+        sendWoNotification(
+          null,
+          `RCA Report Logged: ${rcaForm.incident_ref}`,
+          `A new Root Cause Analysis (RCA) report has been logged for incident ${rcaForm.incident_ref} on asset ${rcaAssetName}.`,
+          "medium",
+          "maintenance_engineer",
+        ),
+      ]);
 
       toast.success("RCA Report logged successfully");
       setShowRcaModal(false);
@@ -829,9 +910,7 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
         {/* Maintenance Timeline */}
         <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <h3 className="font-display font-semibold">
-              Maintenance Timeline
-            </h3>
+            <h3 className="font-display font-semibold">Maintenance Timeline</h3>
             <div className="flex gap-1 text-xs">
               {(["active", "assigned", "history"] as const).map((tab) => (
                 <button
@@ -844,7 +923,11 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                       : "bg-muted text-muted-foreground hover:bg-muted/70"
                   }`}
                 >
-                  {tab === "active" ? "All Active" : tab === "assigned" ? "Assigned to Me" : "History"}
+                  {tab === "active"
+                    ? "All Active"
+                    : tab === "assigned"
+                      ? "Assigned to Me"
+                      : "History"}
                 </button>
               ))}
             </div>
@@ -853,7 +936,9 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
           {/* Rework / Reject Reason Overlay */}
           {rejectWoId && (
             <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 space-y-2 text-xs">
-              <div className="font-semibold text-destructive">Enter Rework / Rejection Reason</div>
+              <div className="font-semibold text-destructive">
+                Enter Rework / Rejection Reason
+              </div>
               <textarea
                 placeholder="Describe what needs to be fixed..."
                 value={rejectNote}
@@ -862,7 +947,7 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
               />
               <div className="flex gap-2 justify-end">
                 <Button
-                  size="xs"
+                  size="sm"
                   variant="outline"
                   onClick={() => {
                     setRejectWoId(null);
@@ -872,7 +957,7 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                   Cancel
                 </Button>
                 <Button
-                  size="xs"
+                  size="sm"
                   variant="destructive"
                   onClick={() => handleReject(rejectWoId, rejectNote)}
                 >
@@ -885,7 +970,10 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
           {(() => {
             const filteredWos = workOrders.filter((w) => {
               if (activeWoTab === "active") return w.status !== "Completed";
-              if (activeWoTab === "assigned") return w.assignee_id === currentUserId && w.status !== "Completed";
+              if (activeWoTab === "assigned")
+                return (
+                  w.assignee_id === currentUserId && w.status !== "Completed"
+                );
               return w.status === "Completed";
             });
 
@@ -912,12 +1000,17 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                     e.priority === "Critical" || e.priority === "High"
                       ? "warning"
                       : "emerald";
-                  
-                  const isAssignee = currentUserId && e.assignee_id === currentUserId;
-                  const isAssigner = currentUserId && (e.created_by === currentUserId || role === "plant_manager" || role === "safety_officer");
-                  
+
+                  const isAssignee =
+                    currentUserId && e.assignee_id === currentUserId;
+                  const isAssigner =
+                    currentUserId &&
+                    (e.created_by === currentUserId ||
+                      role === "plant_manager" ||
+                      role === "safety_officer");
+
                   // Badge styles matching inspections page
-                  const badgeStyle = 
+                  const badgeStyle =
                     e.status === "Completed"
                       ? "bg-emerald/10 text-emerald border-emerald/20"
                       : e.status === "Completed — Pending Verification"
@@ -937,20 +1030,26 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                             : "bg-emerald"
                         }`}
                       />
-                      
+
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="text-[10px] uppercase font-bold text-muted-foreground">
                           Due: {dayStr}
                         </div>
                         <div className="flex gap-1.5 items-center">
                           {/* Priority badge */}
-                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${
-                            tone === "warning" ? "border-orange-500/20 bg-orange-500/10 text-orange-500" : "border-emerald/20 bg-emerald/10 text-emerald"
-                          }`}>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${
+                              tone === "warning"
+                                ? "border-orange-500/20 bg-orange-500/10 text-orange-500"
+                                : "border-emerald/20 bg-emerald/10 text-emerald"
+                            }`}
+                          >
                             {e.priority}
                           </span>
                           {/* Status badge */}
-                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${badgeStyle}`}>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${badgeStyle}`}
+                          >
                             {e.status}
                           </span>
                         </div>
@@ -977,34 +1076,37 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
 
                         {/* Action buttons */}
                         <div className="flex gap-1.5">
-                          {(e.status === "Pending" || e.status === "Scheduled") && isAssignee && (
-                            <Button
-                              size="xs"
-                              onClick={() => handleMarkComplete(e)}
-                              className="text-[10px] py-0.5 px-2 bg-accent text-accent-foreground hover:bg-accent/90"
-                            >
-                              Mark Complete
-                            </Button>
-                          )}
-                          {e.status === "Completed — Pending Verification" && isAssigner && (
-                            <>
+                          {(e.status === "Pending" ||
+                            e.status === "Scheduled") &&
+                            isAssignee && (
                               <Button
-                                size="xs"
-                                variant="outline"
-                                onClick={() => setRejectWoId(e.id)}
-                                className="text-[10px] py-0.5 px-2 text-destructive border-destructive/20 hover:bg-destructive/10"
+                                size="sm"
+                                onClick={() => handleMarkComplete(e)}
+                                className="text-[10px] py-0.5 px-2 bg-accent text-accent-foreground hover:bg-accent/90"
                               >
-                                Reject
+                                Mark Complete
                               </Button>
-                              <Button
-                                size="xs"
-                                onClick={() => handleVerify(e)}
-                                className="text-[10px] py-0.5 px-2 bg-emerald hover:bg-emerald/90 text-white"
-                              >
-                                Verify
-                              </Button>
-                            </>
-                          )}
+                            )}
+                          {e.status === "Completed — Pending Verification" &&
+                            isAssigner && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setRejectWoId(e.id)}
+                                  className="text-[10px] py-0.5 px-2 text-destructive border-destructive/20 hover:bg-destructive/10"
+                                >
+                                  Reject
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleVerify(e)}
+                                  className="text-[10px] py-0.5 px-2 bg-emerald hover:bg-emerald/90 text-white"
+                                >
+                                  Verify
+                                </Button>
+                              </>
+                            )}
                         </div>
                       </div>
                     </div>
@@ -1314,8 +1416,12 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                       {engineers
                         .filter(
                           (eng) =>
-                            eng.full_name?.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
-                            eng.email?.toLowerCase().includes(assigneeSearch.toLowerCase())
+                            eng.full_name
+                              ?.toLowerCase()
+                              .includes(assigneeSearch.toLowerCase()) ||
+                            eng.email
+                              ?.toLowerCase()
+                              .includes(assigneeSearch.toLowerCase()),
                         )
                         .map((eng) => (
                           <button
@@ -1330,17 +1436,25 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                               setAssigneeSearch(eng.full_name);
                             }}
                             className={`w-full text-left px-2 py-1.5 rounded-md text-xs hover:bg-muted transition flex justify-between items-center ${
-                              woForm.assignee_id === eng.user_id ? "bg-accent/10 text-accent font-bold" : ""
+                              woForm.assignee_id === eng.user_id
+                                ? "bg-accent/10 text-accent font-bold"
+                                : ""
                             }`}
                           >
                             <span>{eng.full_name}</span>
-                            <span className="text-[10px] opacity-60 font-normal">{eng.email}</span>
+                            <span className="text-[10px] opacity-60 font-normal">
+                              {eng.email}
+                            </span>
                           </button>
                         ))}
                       {engineers.filter(
                         (eng) =>
-                          eng.full_name?.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
-                          eng.email?.toLowerCase().includes(assigneeSearch.toLowerCase())
+                          eng.full_name
+                            ?.toLowerCase()
+                            .includes(assigneeSearch.toLowerCase()) ||
+                          eng.email
+                            ?.toLowerCase()
+                            .includes(assigneeSearch.toLowerCase()),
                       ).length === 0 && (
                         <div className="text-muted-foreground italic text-center py-2 text-[10px]">
                           No engineers match search
@@ -1355,7 +1469,11 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                       <button
                         type="button"
                         onClick={() => {
-                          setWoForm({ ...woForm, assignee_id: "", assigned_to: "" });
+                          setWoForm({
+                            ...woForm,
+                            assignee_id: "",
+                            assigned_to: "",
+                          });
                           setAssigneeSearch("");
                         }}
                         className="hover:text-destructive"
