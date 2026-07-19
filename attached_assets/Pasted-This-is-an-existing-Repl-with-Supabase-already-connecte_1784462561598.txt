@@ -1,0 +1,48 @@
+This is an existing Repl with Supabase already connected as the backend. Do NOT create a new backend, do NOT reconnect or reconfigure Supabase — use the existing connection exactly as configured in the project.
+
+TEAMMATE NOTE: Someone else is working in parallel in a separate Repl/session on: Quality & Compliance, Dashboard calendar, Knowledge Graph, and a new Procurement module. Do not touch app.quality.tsx, the dashboard calendar widget, app.graph.tsx, or create any "procurement" route/table. If a fix seems to require touching those, stop and ask me first.
+
+GLOBAL RULE: No UI/visual/styling/layout changes anywhere except items 4 and 16b below. Don't restyle, redesign, or "improve" anything not explicitly listed. Don't touch any file, table, route, or component not required by the specific item you're working on.
+
+ROLE ACCESS — DO NOT TOUCH: Do not modify rbac.ts's PERMISSIONS or WRITE_PERMISSIONS dictionaries, and do not modify any RLS policy tied to roles, for any reason, anywhere in this task. If any item below seems to need a role-access change, STOP and ask instead of changing it.
+
+Work through the items below IN ORDER. Items marked "INVESTIGATE FIRST" — report your findings and proposed approach before writing any code for that item.
+
+1. OTP Enter-key submit
+Pressing Enter in the OTP input does nothing — user must click "Verify OTP" manually. Happens in BOTH sign-up and sign-in flows. Fix: attach an Enter-key handler to the OTP input(s) in both flows so it triggers the same action as clicking "Verify OTP." No layout changes.
+
+2. Face ID re-registration flow
+When a logged-in user re-registers Face ID during login, it currently redirects through role selection first. Fix: if this is a re-registration (not a brand-new signup), skip role selection — go straight to Face ID registration, then redirect directly to the login page (not role selection, not dashboard).
+
+4. Documents table layout — columns hidden behind detail panel
+Rightmost table columns (NAME, CATEGORY, ASSET, VERSION, RAG INDEX, etc.) get cut off behind the "Select a document" detail panel. Fix the table/panel layout (responsive widths, horizontal scroll, or panel resize) so all columns stay visible at any screen width. Scoped only to this table/panel layout.
+
+6. Remove Knowledge Hub page
+INVESTIGATE FIRST: check if anything else (global search, AI Copilot, Documents page) depends on Knowledge Hub's data or routes. Report findings. If safe: remove "Knowledge Hub" from sidebar nav and disable its route. Don't delete underlying data unless it's exclusively used here and confirmed nothing else reads it.
+
+8. RAG indexing — slow, and fails on DWG/CSV
+INVESTIGATE FIRST, report all three before fixing:
+   a) Why .dwg and .csv files fail to process at all
+   b) Why supported file types take hours instead of seconds (check for blocking processing, missing job queue, unnecessary sequential calls, rate-limiting)
+   c) Why chunk quality is poor enough that Copilot can't answer from indexed docs (chunk size, overlap, naive vs structure-aware splitting)
+   Then fix: add real .csv ingestion (structured extraction, not raw text) and .dwg support (if full CAD parsing isn't feasible, use the best fallback — embedded text, layers, title-block metadata — and report the limitation honestly instead of faking support). Fix the performance bottleneck so new files index in seconds. Improve chunking so Copilot reliably answers from content. Keep the existing LLM/embeddings provider — don't swap it.
+
+9. Auto-categorization — slow and inaccurate
+Files often wrongly left "Uncategorized." Fix logic to use filename + extension + actual content (not just one signal). Fix performance to seconds, not days. Likely shares root cause with item 8 — check if they share infrastructure before fixing both.
+
+10. File size + category sort order
+   a) Capture/store file size at upload if not already done.
+   b) Show file size in the document list/table and the detail card.
+   c) Enable sorting by file size.
+   d) Default sort: group by category, Technical Manuals first, then SOPs second. INVESTIGATE FIRST: list every category value currently in use, propose the full ordering for the rest, report before finalizing.
+
+16b. Top bar cleanup
+Remove the language selector and notification bell icon from the TOP BAR only. Keep "Notifications" as a sidebar nav item (already exists). Don't touch anything else on the top bar.
+
+FINAL CONSTRAINTS:
+- Only implement items 1, 2, 4, 6, 8, 9, 10, 16b — nothing else.
+- No role/permission changes at all.
+- No visual changes except items 4 and 16b.
+- If anything's ambiguous, stop and ask — especially INVESTIGATE FIRST items.
+- Run typecheck, lint, and build after each item; all must pass before moving on.
+- When done, report status item-by-item, flag anything incomplete or needing my decision.
