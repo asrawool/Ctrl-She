@@ -531,7 +531,7 @@ function Page() {
         delayExcerpt = ` · Delay Reason: "${completeForm.delayReason}"`;
       }
 
-      const notifTitle = `Inspection Completed (${completeForm.result}): ${completingInspection.name}`;
+      const notifTitle = `Inspection Completed — ${completeForm.result}: ${completingInspection.name}`;
       const notifMessage = `Inspection "${completingInspection.name}" (${completingInspection.framework}) completed with result "${completeForm.result}". Findings: "${findingsExcerpt}"${delayExcerpt}`;
 
       await Promise.all(
@@ -1090,18 +1090,41 @@ function Page() {
                         {dateStr}
                       </span>
                       {isCompleted && (
-                        <span className={`rounded-full text-[9px] font-bold px-2 py-0.5 border ${
-                          it.completed_late
-                            ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
-                            : "bg-emerald/10 text-emerald border-emerald/20"
-                        }`}>
-                          {it.completed_late ? "Completed — Late" : "Completed — On Time"}
-                        </span>
+                        <>
+                          <span className={`rounded-full text-[9px] font-bold px-2 py-0.5 border ${
+                            it.completed_late
+                              ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                              : "bg-emerald/10 text-emerald border-emerald/20"
+                          }`}>
+                            {it.completed_late ? "Completed — Late" : "Completed — On Time"}
+                          </span>
+                          {it.result && (
+                            <span className={`rounded-full text-[9px] font-bold px-2 py-0.5 border ${
+                              it.result === "Pass"
+                                ? "bg-emerald/10 text-emerald border-emerald/20"
+                                : it.result === "Fail"
+                                  ? "bg-destructive/10 text-destructive border-destructive/20"
+                                  : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                            }`}>
+                              {it.result}
+                            </span>
+                          )}
+                        </>
                       )}
                       {isOverdue && (
                         <span className="rounded-full bg-destructive/10 text-destructive text-[9px] font-bold px-2 py-0.5 border border-destructive/20">
                           Overdue
                         </span>
+                      )}
+                      {isCompleted && (it.result === "Fail" || it.result === "Needs Follow-up") && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-[10px] border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
+                          onClick={() => handleInitiateNcrHandoff(it)}
+                        >
+                          Create NCR
+                        </Button>
                       )}
                       {(() => {
                         const isAssignee = currentUserId && it.assignee_ids && it.assignee_ids.includes(currentUserId);

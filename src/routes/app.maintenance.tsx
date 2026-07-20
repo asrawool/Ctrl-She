@@ -579,7 +579,7 @@ function Page() {
         delayExcerpt = ` · Delay Reason: "${completeForm.delayReason}"`;
       }
 
-      const notifTitle = `Inspection Completed (${completeForm.result}): ${completingInspection.name}`;
+      const notifTitle = `Inspection Completed — ${completeForm.result}: ${completingInspection.name}`;
       const notifMessage = `Inspection "${completingInspection.name}" (${completingInspection.framework}) completed with result "${completeForm.result}". Findings: "${findingsExcerpt}"${delayExcerpt}`;
 
       await Promise.all(
