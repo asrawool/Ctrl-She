@@ -31,6 +31,7 @@ import {
 import { ComplianceFramework, Inspection, NCR } from "@/types/operational";
 import { useAuth } from "@/store/auth";
 import { hasPermission, getActionRequiredRolesLabel } from "@/services/rbac";
+import { isInspectionOverdue, checkAndMarkOverdue } from "@/services/inspections";
 
 export const Route = createFileRoute("/app/quality")({
   head: () => ({ meta: [{ title: "Quality & Compliance — IntelliPlant AI" }] }),
@@ -211,11 +212,27 @@ function Page() {
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
+  // Searchable assignee picker states matching maintenance page pattern
+  const [engineers, setEngineers] = useState<{ user_id: string; full_name: string; email: string }[]>([]);
+  const [assigneeSearch, setAssigneeSearch] = useState("");
+
   // Modal states
   const [showNcrModal, setShowNcrModal] = useState(false);
   const [showInspectModal, setShowInspectModal] = useState(false);
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [selectedNcr, setSelectedNcr] = useState<NCR | null>(null);
+
+  // Complete inspection modal states (item 3)
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [completingInspection, setCompletingInspection] = useState<Inspection | null>(null);
+  const [completeForm, setCompleteForm] = useState({
+    result: "Pass",
+    findings: "",
+    delayReason: "",
+  });
+
+  // NCR handoff banner/alert state (item 4)
+  const [justCompletedInspection, setJustCompletedInspection] = useState<Inspection | null>(null);
 
   // Form states
   const [ncrForm, setNcrForm] = useState({
@@ -226,7 +243,7 @@ function Page() {
   });
 
   const [profiles, setProfiles] = useState<
-    { user_id: string; full_name: string }[]
+    { user_id: string; full_name: string; email?: string }[]
   >([]);
 
   const [inspectForm, setInspectForm] = useState({
@@ -234,6 +251,7 @@ function Page() {
     framework: "ISO 9001",
     scheduled_date: "",
     assignee_ids: [] as string[],
+    scope: "", // Optional scope/instructions field
   });
 
   const [resolveForm, setResolveForm] = useState({
@@ -253,6 +271,7 @@ function Page() {
         { data: insData },
         { data: ncrData },
         { data: profData },
+        { data: roleData },
       ] = await Promise.all([
         supabase
           .from("compliance_frameworks")
@@ -268,8 +287,12 @@ function Page() {
           .order("created_at", { ascending: false }),
         supabase
           .from("user_profiles")
-          .select("user_id, full_name")
+          .select("user_id, full_name, email")
           .order("full_name", { ascending: true }),
+        supabase
+          .from("user_roles")
+          .select("user_id, role")
+          .eq("role", "maintenance_engineer"),
       ]);
 
       setFrameworks(fwData || []);
@@ -277,9 +300,21 @@ function Page() {
       setNcrs(ncrData || []);
       setProfiles(profData || []);
 
+      // Filter profiles by maintenance_engineer role
+      const engProfiles = (profData || []).filter((p) =>
+        (roleData || []).some((r) => r.user_id === p.user_id)
+      ) as { user_id: string; full_name: string; email: string }[];
+      setEngineers(engProfiles);
+
       // Check and auto-mark overdue inspections (non-blocking)
       if (insData && insData.length > 0) {
-        checkAndMarkOverdue(insData);
+        checkAndMarkOverdue(insData, (overdueIds) => {
+          setInspections((prev) =>
+            prev.map((i) =>
+              overdueIds.includes(i.id) ? { ...i, status: "Overdue" } : i
+            )
+          );
+        });
       }
     } catch (e) {
       console.error(e);
@@ -289,58 +324,6 @@ function Page() {
     }
   };
 
-  // ── overdue detection ──
-  // Notifications go to `created_by` only — the person who scheduled the inspection.
-  // Assignees are stored as free-text names (no user-ID directory exists), so
-  // we cannot resolve them to UUIDs; the assigner is the accountable party in-app.
-  const checkAndMarkOverdue = async (inspectionList: Inspection[]) => {
-    const now = new Date();
-    const overdueItems = inspectionList.filter(
-      (i) => i.status === "Pending" && new Date(i.scheduled_date) < now,
-    );
-    if (overdueItems.length === 0) return;
-
-    await Promise.all(
-      overdueItems.map((item) =>
-        supabase
-          .from("inspections")
-          .update({ status: "Overdue" })
-          .eq("id", item.id),
-      ),
-    );
-
-    // Update local state immediately — no re-fetch loop
-    setInspections((prev) =>
-      prev.map((i) =>
-        overdueItems.some((oi) => oi.id === i.id)
-          ? { ...i, status: "Overdue" }
-          : i,
-      ),
-    );
-
-    // Notify the assigner (created_by) and assignees for each overdue inspection.
-    const notifPromises: Promise<void>[] = [];
-    for (const item of overdueItems) {
-      const title = `Inspection overdue: ${item.name}`;
-      const msg = `"${item.name}" (${item.framework}) scheduled for ${new Date(item.scheduled_date).toLocaleDateString()} is now overdue. Assignee(s): ${item.assigned_to || "none listed"}.`;
-
-      if (item.created_by) {
-        notifPromises.push(
-          insertNotification(item.created_by, title, msg, "warning", "high"),
-        );
-      }
-      if (item.assignee_ids && item.assignee_ids.length > 0) {
-        for (const assigneeId of item.assignee_ids) {
-          notifPromises.push(
-            insertNotification(assigneeId, title, msg, "warning", "high"),
-          );
-        }
-      }
-    }
-    if (notifPromises.length > 0) {
-      await Promise.all(notifPromises);
-    }
-  };
 
   // ── recalc framework score ──
   const recalcFrameworkScore = async (
@@ -455,8 +438,8 @@ function Page() {
         status: "Pending",
         assigned_to: assigned_to,
         assignee_ids: inspectForm.assignee_ids,
-
         created_by: user?.id ?? null,
+        scope: inspectForm.scope || null,
       });
       if (error) throw error;
 
@@ -465,12 +448,13 @@ function Page() {
         const scheduledStr = new Date(
           inspectForm.scheduled_date,
         ).toLocaleString();
+        const scopeText = inspectForm.scope ? ` Scope/Instructions: "${inspectForm.scope}".` : "";
         await Promise.all(
           inspectForm.assignee_ids.map((assigneeId) =>
             insertNotification(
               assigneeId,
               `Inspection assigned: ${inspectForm.name}`,
-              `You have been assigned to "${inspectForm.name}" (${inspectForm.framework}) scheduled for ${scheduledStr}.`,
+              `You have been assigned to "${inspectForm.name}" (${inspectForm.framework}) scheduled for ${scheduledStr}.${scopeText}`,
               "info",
               "medium",
             ),
@@ -485,44 +469,121 @@ function Page() {
         framework: frameworks[0]?.name || "ISO 9001",
         scheduled_date: "",
         assignee_ids: [],
+        scope: "",
       });
+      setAssigneeSearch("");
       fetchData();
     } catch (err: unknown) {
       toast.error("Failed to schedule inspection: " + (err as Error).message);
     }
   };
 
-  const handleCompleteInspection = async (inspection: Inspection) => {
+  const handleCompleteInspection = (inspection: Inspection) => {
+    setCompletingInspection(inspection);
+    setShowCompleteModal(true);
+    setCompleteForm({ result: "Pass", findings: "", delayReason: "" });
+  };
+
+  const submitCompleteInspection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!completingInspection) return;
+
+    const isOverdue = isInspectionOverdue(completingInspection);
+    if (isOverdue && !completeForm.delayReason.trim()) {
+      toast.error("Please enter a reason for delay.");
+      return;
+    }
+
     try {
+      const completedAt = new Date().toISOString();
+      const completedLate = isOverdue;
       const { error: insError } = await supabase
         .from("inspections")
         .update({
           status: "Completed",
-          completed_at: new Date().toISOString(),
+          completed_at: completedAt,
+          result: completeForm.result,
+          findings: completeForm.findings,
+          completed_late: completedLate,
+          delay_reason: completedLate ? completeForm.delayReason : null,
         })
-        .eq("id", inspection.id);
+        .eq("id", completingInspection.id);
       if (insError) throw insError;
 
-      const newScore = await recalcFrameworkScore(inspection.framework);
+      const newScore = await recalcFrameworkScore(completingInspection.framework);
 
-      // Notify the assigner (created_by)
-      if (inspection.created_by) {
-        await insertNotification(
-          inspection.created_by,
-          `Inspection completed: ${inspection.name}`,
-          `"${inspection.name}" (${inspection.framework}) has been marked as Completed.`,
-          "info",
-          "medium",
-        );
+      // Fetch all safety officers to notify
+      const { data: safetyOfficers } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "safety_officer");
+
+      const notifyIds = new Set<string>();
+      if (completingInspection.created_by) notifyIds.add(completingInspection.created_by);
+      (safetyOfficers || []).forEach((s) => notifyIds.add(s.user_id));
+
+      const findingsExcerpt = completeForm.findings.length > 60
+        ? completeForm.findings.slice(0, 57) + "..."
+        : completeForm.findings;
+
+      let delayExcerpt = "";
+      if (completedLate && completeForm.delayReason) {
+        delayExcerpt = ` · Delay Reason: "${completeForm.delayReason}"`;
       }
 
-      toast.success(
-        `Inspection marked as Completed. ${inspection.framework} score updated to ${newScore}%`,
+      const notifTitle = `Inspection Completed (${completeForm.result}): ${completingInspection.name}`;
+      const notifMessage = `Inspection "${completingInspection.name}" (${completingInspection.framework}) completed with result "${completeForm.result}". Findings: "${findingsExcerpt}"${delayExcerpt}`;
+
+      await Promise.all(
+        Array.from(notifyIds).map((targetId) =>
+          insertNotification(targetId, notifTitle, notifMessage, "info", "medium")
+        )
       );
+
+      toast.success(
+        `Inspection marked as Completed. ${completingInspection.framework} score updated to ${newScore}%`,
+      );
+
+      // Show NCR handoff alert if result was Fail or Needs Follow-up
+      if (completeForm.result === "Fail" || completeForm.result === "Needs Follow-up") {
+        setJustCompletedInspection({
+          ...completingInspection,
+          result: completeForm.result,
+          findings: completeForm.findings,
+        });
+      } else {
+        setJustCompletedInspection(null);
+      }
+
+      setShowCompleteModal(false);
+      setCompletingInspection(null);
+      setCompleteForm({ result: "Pass", findings: "", delayReason: "" });
       fetchData();
     } catch (err: unknown) {
       toast.error("Failed to complete inspection: " + (err as Error).message);
     }
+  };
+
+  const handleInitiateNcrHandoff = (ins: Inspection) => {
+    const severity = ins.result === "Fail" ? "High" : "Medium";
+    
+    // Check if the inspection framework matches any of the frameworks list
+    const match = frameworks.find(
+      (f) => f.name.toLowerCase() === ins.framework.toLowerCase()
+    );
+    const frameworkRef = match ? match.name : "";
+
+    const description = `Inspection Reference: ${ins.name}\nFramework: ${ins.framework}\nFindings: ${ins.findings || ""}`;
+
+    setNcrForm({
+      ncr_number: "", // Manual entry
+      description,
+      severity,
+      framework_ref: frameworkRef,
+    });
+
+    setShowNcrModal(true);
+    setJustCompletedInspection(null);
   };
 
   const handleResolveNcr = async (e: React.FormEvent) => {
@@ -605,10 +666,13 @@ function Page() {
     (i) => i.status === "Overdue",
   ).length;
 
-  // ── my assigned inspections (item 12b/c) ──
   const myInspections = useMemo(() => {
     if (!currentUserId) return [];
-    return inspections.filter((i) => i.created_by === currentUserId);
+    return inspections.filter(
+      (i) =>
+        i.created_by === currentUserId ||
+        (i.assignee_ids && i.assignee_ids.includes(currentUserId))
+    );
   }, [inspections, currentUserId]);
 
   const myPending = myInspections.filter((i) => i.status === "Pending").length;
@@ -721,6 +785,22 @@ function Page() {
           </div>
         }
       />
+
+      {/* NCR handoff banner (item 4) */}
+      {justCompletedInspection && (justCompletedInspection.result === "Fail" || justCompletedInspection.result === "Needs Follow-up") && (
+        <div className="mb-4 p-4 rounded-xl border border-orange-500/20 bg-orange-500/5 flex items-center justify-between gap-4 text-xs">
+          <div>
+            <span className="font-semibold text-orange-500">Rework required:</span> The inspection "{justCompletedInspection.name}" completed with result <b>{justCompletedInspection.result}</b>. You should log a Non-Conformance Report.
+          </div>
+          <Button
+            size="sm"
+            className="btn-hero text-[11px] h-7 px-3 shrink-0"
+            onClick={() => handleInitiateNcrHandoff(justCompletedInspection)}
+          >
+            Create NCR from this inspection
+          </Button>
+        </div>
+      )}
 
       {/* Quality KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -852,16 +932,19 @@ function Page() {
                     >
                       {it.status}
                     </span>
-                    {(it.status === "Pending" || it.status === "Overdue") && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-[10px]"
-                        onClick={() => handleCompleteInspection(it)}
-                      >
-                        Mark Completed
-                      </Button>
-                    )}
+                    {(() => {
+                      const isAssignee = currentUserId && it.assignee_ids && it.assignee_ids.includes(currentUserId);
+                      return (it.status === "Pending" || it.status === "Overdue") && isAssignee && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-[10px]"
+                          onClick={() => handleCompleteInspection(it)}
+                        >
+                          Mark Completed
+                        </Button>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -976,7 +1059,7 @@ function Page() {
                     minute: "2-digit",
                   },
                 );
-                const isOverdue = it.status === "Overdue";
+                const isOverdue = isInspectionOverdue(it);
                 const isPending = it.status === "Pending";
                 const isCompleted = it.status === "Completed";
                 return (
@@ -992,10 +1075,13 @@ function Page() {
                       <div className="font-medium text-sm truncate">
                         {it.name}
                       </div>
-                      <div className="text-xs text-muted-foreground flex items-center gap-1">
+                      <div className="text-xs text-muted-foreground flex items-center gap-1 flex-wrap">
                         <span>Framework: {it.framework}</span>
                         {it.assigned_to && (
                           <span>· Assigned: {it.assigned_to}</span>
+                        )}
+                        {it.completed_late && it.delay_reason && (
+                          <span className="text-amber-500 font-medium">· Delay Reason: "{it.delay_reason}"</span>
                         )}
                       </div>
                     </div>
@@ -1004,8 +1090,12 @@ function Page() {
                         {dateStr}
                       </span>
                       {isCompleted && (
-                        <span className="rounded-full bg-emerald/10 text-emerald text-[9px] font-bold px-2 py-0.5 border border-emerald/20">
-                          Completed
+                        <span className={`rounded-full text-[9px] font-bold px-2 py-0.5 border ${
+                          it.completed_late
+                            ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                            : "bg-emerald/10 text-emerald border-emerald/20"
+                        }`}>
+                          {it.completed_late ? "Completed — Late" : "Completed — On Time"}
                         </span>
                       )}
                       {isOverdue && (
@@ -1013,16 +1103,19 @@ function Page() {
                           Overdue
                         </span>
                       )}
-                      {(isPending || isOverdue) && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[10px]"
-                          onClick={() => handleCompleteInspection(it)}
-                        >
-                          Mark Completed
-                        </Button>
-                      )}
+                      {(() => {
+                        const isAssignee = currentUserId && it.assignee_ids && it.assignee_ids.includes(currentUserId);
+                        return (isPending || isOverdue) && isAssignee && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[10px]"
+                            onClick={() => handleCompleteInspection(it)}
+                          >
+                            Mark Completed
+                          </Button>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
@@ -1236,6 +1329,19 @@ function Page() {
               </div>
               <div>
                 <label className="block text-muted-foreground mb-1">
+                  Scope / Instructions (Optional)
+                </label>
+                <textarea
+                  placeholder="e.g. Inspect reactor core seals and record pressure readings."
+                  value={inspectForm.scope}
+                  onChange={(e) =>
+                    setInspectForm({ ...inspectForm, scope: e.target.value })
+                  }
+                  className="w-full h-12 rounded-lg bg-background border border-border p-2 outline-none focus:border-accent text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-muted-foreground mb-1">
                   Scheduled Date & Time
                 </label>
                 <input
@@ -1253,50 +1359,74 @@ function Page() {
               </div>
               <div>
                 <label className="block text-muted-foreground mb-1">
-                  Assigned Inspectors
+                  Assign Inspector
                 </label>
-                <div className="max-h-32 overflow-y-auto border border-border rounded-lg p-2 space-y-1.5 bg-background">
-                  {profiles.map((p) => (
-                    <label
-                      key={p.user_id}
-                      className="flex items-center gap-2 cursor-pointer text-xs"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={inspectForm.assignee_ids.includes(p.user_id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setInspectForm({
-                              ...inspectForm,
-                              assignee_ids: [
-                                ...inspectForm.assignee_ids,
-                                p.user_id,
-                              ],
-                            });
-                          } else {
-                            setInspectForm({
-                              ...inspectForm,
-                              assignee_ids: inspectForm.assignee_ids.filter(
-                                (id) => id !== p.user_id,
-                              ),
-                            });
-                          }
+                <div className="relative">
+                  <input
+                    placeholder="Search inspector by name or email…"
+                    value={assigneeSearch}
+                    onChange={(e) => setAssigneeSearch(e.target.value)}
+                    className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent text-xs"
+                  />
+                  {assigneeSearch.trim() && (
+                    <div className="w-full mt-1 rounded-lg border border-border bg-card max-h-36 overflow-y-auto p-1.5 space-y-1">
+                      {engineers
+                        .filter(
+                          (eng) =>
+                            eng.full_name?.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
+                            eng.email?.toLowerCase().includes(assigneeSearch.toLowerCase())
+                        )
+                        .map((eng) => (
+                          <button
+                            key={eng.user_id}
+                            type="button"
+                            onClick={() => {
+                              setInspectForm({
+                                ...inspectForm,
+                                assignee_ids: [eng.user_id],
+                              });
+                              setAssigneeSearch(eng.full_name);
+                            }}
+                            className={`w-full text-left px-2 py-1.5 rounded-md text-xs hover:bg-muted transition flex justify-between items-center ${
+                              inspectForm.assignee_ids.includes(eng.user_id) ? "bg-accent/10 text-accent font-bold" : ""
+                            }`}
+                          >
+                            <span>{eng.full_name}</span>
+                            <span className="text-[10px] opacity-60 font-normal">{eng.email}</span>
+                          </button>
+                        ))}
+                      {engineers.filter(
+                        (eng) =>
+                          eng.full_name?.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
+                          eng.email?.toLowerCase().includes(assigneeSearch.toLowerCase())
+                      ).length === 0 && (
+                        <div className="text-muted-foreground italic text-center py-2 text-[10px]">
+                          No inspectors match search
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {/* Selected assignee display badge if search is empty */}
+                  {!assigneeSearch.trim() && inspectForm.assignee_ids.length > 0 && (
+                    <div className="mt-1 flex items-center gap-1.5 text-xs text-accent bg-accent/10 w-fit px-2 py-0.5 rounded">
+                      <span>
+                        Assigned:{" "}
+                        {profiles.find((p) => p.user_id === inspectForm.assignee_ids[0])?.full_name ||
+                          inspectForm.assignee_ids[0]}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInspectForm({ ...inspectForm, assignee_ids: [] });
+                          setAssigneeSearch("");
                         }}
-                        className="accent-accent"
-                      />
-                      <span>{p.full_name || p.user_id}</span>
-                    </label>
-                  ))}
-                  {profiles.length === 0 && (
-                    <span className="text-muted-foreground italic text-[11px]">
-                      No inspector profiles found
-                    </span>
+                        className="hover:text-destructive"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
                   )}
                 </div>
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  Select team members to assign to this inspection. Each
-                  assignee will receive an individual notification.
-                </p>
               </div>
             </div>
             <div className="flex gap-2">
@@ -1369,6 +1499,117 @@ function Page() {
               </Button>
               <Button type="submit" className="w-full text-xs h-8 btn-hero">
                 Mark Resolved
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+      {/* COMPLETE INSPECTION MODAL */}
+      {showCompleteModal && completingInspection && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <form
+            onSubmit={submitCompleteInspection}
+            className="bg-card border border-border w-full max-w-sm rounded-3xl p-6 shadow-2xl relative space-y-4"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setShowCompleteModal(false);
+                setCompletingInspection(null);
+              }}
+              className="absolute right-4 top-4 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <h3 className="font-display text-md font-bold">
+              Complete Inspection
+            </h3>
+            <div className="space-y-3 text-xs">
+              <div>
+                <span className="block text-muted-foreground font-semibold">Inspection Name</span>
+                <span className="text-foreground">{completingInspection.name}</span>
+              </div>
+              <div>
+                <span className="block text-muted-foreground font-semibold">Framework</span>
+                <span className="text-foreground">{completingInspection.framework}</span>
+              </div>
+              {completingInspection.scope && (
+                <div>
+                  <span className="block text-muted-foreground font-semibold">Scope / Instructions</span>
+                  <span className="text-foreground italic">{completingInspection.scope}</span>
+                </div>
+              )}
+              <div>
+                <label className="block text-muted-foreground mb-1 font-semibold">
+                  Result
+                </label>
+                <div className="flex gap-4">
+                  {["Pass", "Fail", "Needs Follow-up"].map((opt) => (
+                    <label key={opt} className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="inspectResult"
+                        value={opt}
+                        checked={completeForm.result === opt}
+                        onChange={(e) => setCompleteForm({ ...completeForm, result: e.target.value })}
+                        className="accent-accent"
+                      />
+                      <span>{opt}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-muted-foreground mb-1 font-semibold">
+                  Findings / Notes
+                </label>
+                <textarea
+                  required
+                  placeholder="Record your inspection observations, notes, or findings..."
+                  value={completeForm.findings}
+                  onChange={(e) =>
+                    setCompleteForm({
+                      ...completeForm,
+                      findings: e.target.value,
+                    })
+                  }
+                  className="w-full h-24 rounded-lg bg-background border border-border p-2 outline-none focus:border-accent text-xs"
+                />
+              </div>
+              {isInspectionOverdue(completingInspection) && (
+                <div>
+                  <label className="block text-amber-500 mb-1 font-semibold">
+                    Reason for Delay (Overdue Inspection)
+                  </label>
+                  <textarea
+                    required
+                    placeholder="Provide a reason for why this inspection is overdue..."
+                    value={completeForm.delayReason}
+                    onChange={(e) =>
+                      setCompleteForm({
+                        ...completeForm,
+                        delayReason: e.target.value,
+                      })
+                    }
+                    className="w-full h-16 rounded-lg bg-background border border-amber-500/30 p-2 outline-none focus:border-amber-500 text-xs"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full text-xs h-8"
+                onClick={() => {
+                  setShowCompleteModal(false);
+                  setCompletingInspection(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" className="w-full text-xs h-8 btn-hero">
+                Submit Findings
               </Button>
             </div>
           </form>

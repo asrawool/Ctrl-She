@@ -37,6 +37,7 @@ import {
   computeHealthStatus,
 } from "@/hooks/useMaintenanceData";
 import { Combobox } from "@/components/ui/combobox";
+import { isInspectionOverdue, checkAndMarkOverdue } from "@/services/inspections";
 
 export const Route = createFileRoute("/app/maintenance")({
   head: () => ({
@@ -100,6 +101,16 @@ function Page() {
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [rejectWoId, setRejectWoId] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState("");
+
+  // Assigned inspections for maintenance engineers (item 2)
+  const [assignedInspections, setAssignedInspections] = useState<any[]>([]);
+  const [showCompleteInspectModal, setShowCompleteInspectModal] = useState(false);
+  const [completingInspection, setCompletingInspection] = useState<any | null>(null);
+  const [completeForm, setCompleteForm] = useState({
+    result: "Pass",
+    findings: "",
+    delayReason: "",
+  });
   const [activeWoTab, setActiveWoTab] = useState<
     "active" | "assigned" | "history"
   >("active");
@@ -172,6 +183,7 @@ function Page() {
         { data: rcaData },
         { data: profData },
         { data: roleData },
+        { data: insData },
         {
           data: { user },
         },
@@ -189,11 +201,27 @@ function Page() {
           .from("user_roles")
           .select("user_id, role")
           .eq("role", "maintenance_engineer"),
+        supabase
+          .from("inspections")
+          .select("*")
+          .order("scheduled_date", { ascending: true }),
         supabase.auth.getUser(),
       ]);
 
       setWorkOrders(woData || []);
       setRcaReports(rcaData || []);
+      setAssignedInspections(insData || []);
+
+      // Check and auto-mark overdue inspections
+      if (insData && insData.length > 0) {
+        checkAndMarkOverdue(insData, (overdueIds) => {
+          setAssignedInspections((prev) =>
+            prev.map((i) =>
+              overdueIds.includes(i.id) ? { ...i, status: "Overdue" } : i
+            )
+          );
+        });
+      }
 
       if (user) {
         setCurrentUserId(user.id);
@@ -377,15 +405,19 @@ function Page() {
         .eq("id", wo.id);
       if (error) throw error;
 
-      // Fetch all plant managers to notify
-      const { data: managers } = await supabase
-        .from("user_roles")
-        .select("user_id")
-        .eq("role", "plant_manager");
+      // Fetch all plant managers & safety officers to notify
+      const [
+        { data: managers },
+        { data: safetyOfficers }
+      ] = await Promise.all([
+        supabase.from("user_roles").select("user_id").eq("role", "plant_manager"),
+        supabase.from("user_roles").select("user_id").eq("role", "safety_officer")
+      ]);
 
       const notifyIds = new Set<string>();
       if (wo.created_by) notifyIds.add(wo.created_by);
       (managers || []).forEach((m) => notifyIds.add(m.user_id));
+      (safetyOfficers || []).forEach((s) => notifyIds.add(s.user_id));
 
       await Promise.all(
         Array.from(notifyIds).map((targetId) =>
@@ -462,6 +494,107 @@ function Page() {
       fetchData();
     } catch (err: unknown) {
       toast.error("Failed to reject work order: " + (err as Error).message);
+    }
+  };
+
+  const handleCompleteInspection = (inspection: any) => {
+    setCompletingInspection(inspection);
+    setShowCompleteInspectModal(true);
+    setCompleteForm({ result: "Pass", findings: "", delayReason: "" });
+  };
+
+  const submitCompleteInspection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!completingInspection) return;
+
+    const isOverdue = isInspectionOverdue(completingInspection);
+    if (isOverdue && !completeForm.delayReason.trim()) {
+      toast.error("Please enter a reason for delay.");
+      return;
+    }
+
+    try {
+      const completedAt = new Date().toISOString();
+      const completedLate = isOverdue;
+      const { error: insError } = await supabase
+        .from("inspections")
+        .update({
+          status: "Completed",
+          completed_at: completedAt,
+          result: completeForm.result,
+          findings: completeForm.findings,
+          completed_late: completedLate,
+          delay_reason: completedLate ? completeForm.delayReason : null,
+        })
+        .eq("id", completingInspection.id);
+      if (insError) throw insError;
+
+      // Wrap in try-catch in case of compliance_frameworks RLS limits
+      try {
+        const { data: frameworkInspections, error: fError } = await supabase
+          .from("inspections")
+          .select("status")
+          .eq("framework", completingInspection.framework);
+        
+        if (!fError && frameworkInspections) {
+          const { data: frameworkNcrs } = await supabase
+            .from("ncrs")
+            .select("status")
+            .eq("framework_ref", completingInspection.framework);
+            
+          const totalInspections = frameworkInspections.length;
+          const completedInspections = frameworkInspections.filter((i) => i.status === "Completed").length;
+          const totalNcrs = frameworkNcrs?.length || 0;
+          const resolvedNcrs = frameworkNcrs?.filter((n) => n.status === "Resolved").length || 0;
+          
+          const total = totalInspections + totalNcrs;
+          const successes = completedInspections + resolvedNcrs;
+          const newScore = total > 0 ? Math.round((successes / total) * 100) : 100;
+          
+          await supabase
+            .from("compliance_frameworks")
+            .update({ current_score: newScore })
+            .eq("name", completingInspection.framework);
+        }
+      } catch (err) {
+        console.warn("Skipping framework score update due to permissions/RLS:", err);
+      }
+
+      // Fetch all safety officers to notify
+      const { data: safetyOfficers } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "safety_officer");
+
+      const notifyIds = new Set<string>();
+      if (completingInspection.created_by) notifyIds.add(completingInspection.created_by);
+      (safetyOfficers || []).forEach((s) => notifyIds.add(s.user_id));
+
+      const findingsExcerpt = completeForm.findings.length > 60
+        ? completeForm.findings.slice(0, 57) + "..."
+        : completeForm.findings;
+
+      let delayExcerpt = "";
+      if (completedLate && completeForm.delayReason) {
+        delayExcerpt = ` · Delay Reason: "${completeForm.delayReason}"`;
+      }
+
+      const notifTitle = `Inspection Completed (${completeForm.result}): ${completingInspection.name}`;
+      const notifMessage = `Inspection "${completingInspection.name}" (${completingInspection.framework}) completed with result "${completeForm.result}". Findings: "${findingsExcerpt}"${delayExcerpt}`;
+
+      await Promise.all(
+        Array.from(notifyIds).map((targetId) =>
+          sendWoNotification(targetId, notifTitle, notifMessage, "medium")
+        )
+      );
+
+      toast.success("Inspection marked as Completed successfully.");
+      setShowCompleteInspectModal(false);
+      setCompletingInspection(null);
+      setCompleteForm({ result: "Pass", findings: "", delayReason: "" });
+      fetchData();
+    } catch (err: unknown) {
+      toast.error("Failed to complete inspection: " + (err as Error).message);
     }
   };
 
@@ -907,8 +1040,9 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        {/* Maintenance Timeline */}
-        <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+        <div className="space-y-4">
+          {/* Maintenance Timeline */}
+          <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="font-display font-semibold">Maintenance Timeline</h3>
             <div className="flex gap-1 text-xs">
@@ -1115,6 +1249,80 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
               </div>
             );
           })()}
+          </div>
+
+          {/* My Assigned Compliance Inspections — item 2 */}
+          {(role === "maintenance_engineer" || assignedInspections.some((ins) => ins.assignee_ids && ins.assignee_ids.includes(currentUserId))) && (
+            <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+              <h3 className="font-display font-semibold flex items-center gap-1.5">
+                <Calendar className="h-4 w-4 text-accent" />
+                My Assigned Compliance Inspections
+              </h3>
+              <div className="space-y-3">
+                {assignedInspections
+                  .filter(
+                    (ins) =>
+                      ins.status !== "Completed" &&
+                      ins.assignee_ids &&
+                      ins.assignee_ids.includes(currentUserId)
+                  )
+                  .map((ins) => {
+                    const dayStr = ins.scheduled_date
+                      ? new Date(ins.scheduled_date).toLocaleDateString(undefined, {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "—";
+                    const isOverdue = isInspectionOverdue(ins);
+                    return (
+                      <div
+                        key={ins.id}
+                        className="p-3 rounded-xl border border-border bg-muted/5 flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-sm truncate">{ins.name}</span>
+                            {isOverdue && (
+                              <span className="rounded-full bg-destructive/10 text-destructive text-[9px] font-bold px-2 py-0.5 border border-destructive/20">
+                                Overdue
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-muted-foreground">
+                            Framework: <b>{ins.framework}</b> · Due: {dayStr}
+                          </div>
+                          {ins.scope && (
+                            <div className="text-[11px] text-muted-foreground bg-muted/10 p-1.5 rounded italic">
+                              Scope: {ins.scope}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-[10px] shrink-0"
+                          onClick={() => handleCompleteInspection(ins)}
+                        >
+                          Complete
+                        </Button>
+                      </div>
+                    );
+                  })}
+                {assignedInspections.filter(
+                  (ins) =>
+                    ins.status !== "Completed" &&
+                    ins.assignee_ids &&
+                    ins.assignee_ids.includes(currentUserId)
+                ).length === 0 && (
+                  <p className="text-xs text-muted-foreground italic">
+                    No pending compliance inspections assigned to you.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Spare Parts Inventory */}
@@ -1757,6 +1965,117 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
               </Button>
               <Button type="submit" className="w-full text-xs h-8 btn-hero">
                 Log RCA Report
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+      {/* COMPLETE INSPECTION MODAL */}
+      {showCompleteInspectModal && completingInspection && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <form
+            onSubmit={submitCompleteInspection}
+            className="bg-card border border-border w-full max-w-sm rounded-3xl p-6 shadow-2xl relative space-y-4"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setShowCompleteInspectModal(false);
+                setCompletingInspection(null);
+              }}
+              className="absolute right-4 top-4 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <h3 className="font-display text-md font-bold">
+              Complete Inspection
+            </h3>
+            <div className="space-y-3 text-xs">
+              <div>
+                <span className="block text-muted-foreground font-semibold">Inspection Name</span>
+                <span className="text-foreground">{completingInspection.name}</span>
+              </div>
+              <div>
+                <span className="block text-muted-foreground font-semibold">Framework</span>
+                <span className="text-foreground">{completingInspection.framework}</span>
+              </div>
+              {completingInspection.scope && (
+                <div>
+                  <span className="block text-muted-foreground font-semibold">Scope / Instructions</span>
+                  <span className="text-foreground italic">{completingInspection.scope}</span>
+                </div>
+              )}
+              <div>
+                <label className="block text-muted-foreground mb-1 font-semibold">
+                  Result
+                </label>
+                <div className="flex gap-4">
+                  {["Pass", "Fail", "Needs Follow-up"].map((opt) => (
+                    <label key={opt} className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="inspectResult"
+                        value={opt}
+                        checked={completeForm.result === opt}
+                        onChange={(e) => setCompleteForm({ ...completeForm, result: e.target.value })}
+                        className="accent-accent"
+                      />
+                      <span>{opt}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-muted-foreground mb-1 font-semibold">
+                  Findings / Notes
+                </label>
+                <textarea
+                  required
+                  placeholder="Record your inspection observations, notes, or findings..."
+                  value={completeForm.findings}
+                  onChange={(e) =>
+                    setCompleteForm({
+                      ...completeForm,
+                      findings: e.target.value,
+                    })
+                  }
+                  className="w-full h-24 rounded-lg bg-background border border-border p-2 outline-none focus:border-accent text-xs"
+                />
+              </div>
+              {isInspectionOverdue(completingInspection) && (
+                <div>
+                  <label className="block text-amber-500 mb-1 font-semibold">
+                    Reason for Delay (Overdue Inspection)
+                  </label>
+                  <textarea
+                    required
+                    placeholder="Provide a reason for why this inspection is overdue..."
+                    value={completeForm.delayReason}
+                    onChange={(e) =>
+                      setCompleteForm({
+                        ...completeForm,
+                        delayReason: e.target.value,
+                      })
+                    }
+                    className="w-full h-16 rounded-lg bg-background border border-amber-500/30 p-2 outline-none focus:border-amber-500 text-xs"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full text-xs h-8"
+                onClick={() => {
+                  setShowCompleteInspectModal(false);
+                  setCompletingInspection(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" className="w-full text-xs h-8 btn-hero">
+                Submit Findings
               </Button>
             </div>
           </form>
