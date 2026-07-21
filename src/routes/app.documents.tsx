@@ -783,8 +783,8 @@ function Documents() {
       </div>
 
       {/* Content */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_320px]">
-        <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_360px]">
+        <div className="rounded-2xl border border-border bg-card overflow-hidden min-w-0">
           {filtered.length === 0 ? (
             <EmptyState
               icon={Folder}
@@ -792,47 +792,50 @@ function Documents() {
               description="Try adjusting filters or upload new documents to get started."
             />
           ) : view === "list" ? (
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="text-left px-4 py-2.5 font-semibold">Name</th>
-                  <th className="text-left px-4 py-2.5 font-semibold">
-                    Category
-                  </th>
-                  <th className="text-left px-4 py-2.5 font-semibold">Asset</th>
-                  <th className="text-left px-4 py-2.5 font-semibold">
-                    Version
-                  </th>
-                  <th className="text-left px-4 py-2.5 font-semibold">Size</th>
-                  <th className="text-left px-4 py-2.5 font-semibold">
-                    RAG Index
-                  </th>
-                  <th className="text-left px-4 py-2.5 font-semibold">
-                    Updated
-                  </th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((d) => {
-                  const I = ICONS[d.type] || FileText;
-                  const isReprocessing = !!reprocessing[d.id];
-                  return (
-                    <tr
-                      key={d.id}
-                      onClick={() => {
-                        setSelected(d);
-                        setEditingDoc(null);
-                      }}
-                      className="border-t border-border hover:bg-muted/40 cursor-pointer"
-                    >
-                      <td className="px-4 py-2.5 flex items-center gap-2.5">
-                        <I className="h-4 w-4 text-accent shrink-0" />
-                        <span className="truncate">{d.name}</span>
-                        {d.starred && (
-                          <Star className="h-3 w-3 fill-warning text-warning" />
-                        )}
-                      </td>
+            <div className="overflow-x-auto min-w-0">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="text-left px-4 py-2.5 font-semibold">Name</th>
+                    <th className="text-left px-4 py-2.5 font-semibold">
+                      Category
+                    </th>
+                    <th className="text-left px-4 py-2.5 font-semibold">Asset</th>
+                    <th className="text-left px-4 py-2.5 font-semibold">
+                      Version
+                    </th>
+                    <th className="text-left px-4 py-2.5 font-semibold">Size</th>
+                    <th className="text-left px-4 py-2.5 font-semibold">
+                      RAG Index
+                    </th>
+                    <th className="text-left px-4 py-2.5 font-semibold">
+                      Updated
+                    </th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((d) => {
+                    const I = ICONS[d.type] || FileText;
+                    const isReprocessing = !!reprocessing[d.id];
+                    return (
+                      <tr
+                        key={d.id}
+                        onClick={() => {
+                          setSelected(d);
+                          setEditingDoc(null);
+                        }}
+                        className="border-t border-border hover:bg-muted/40 cursor-pointer"
+                      >
+                        <td className="px-4 py-2.5 flex items-center gap-2.5 max-w-[240px] min-w-0">
+                          <I className="h-4 w-4 text-accent shrink-0" />
+                          <span className="truncate flex-1" title={d.name}>
+                            {d.name}
+                          </span>
+                          {d.starred && (
+                            <Star className="h-3 w-3 fill-warning text-warning shrink-0" />
+                          )}
+                        </td>
                       <td className="px-4 py-2.5">
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] flex items-center gap-1 w-fit">
                           {d.tags?.includes("Auto-detected") && "✨ "}
@@ -885,6 +888,7 @@ function Documents() {
                 })}
               </tbody>
             </table>
+            </div>
           ) : (
             <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((d) => {

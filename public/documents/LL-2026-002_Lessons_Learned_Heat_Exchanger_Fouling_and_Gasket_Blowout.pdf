@@ -1,0 +1,9 @@
+LESSONS LEARNED CASE STUDY — HEAT EXCHANGER HX-7 GASKET RUPTURE
+Ref: LL-2026-002 | Origin Incident: WO-102 Overhaul | Asset: HX-7
+
+1. EXECUTIVE SUMMARY
+Heat Exchanger HX-7 suffered EPDM gasket degradation due to severe channel fouling and thermal differential stress when operating past its 52-day RUL warning.
+
+2. PREVENTIVE GUIDELINES
+- Guideline 1: Never operate plate heat exchangers when RUL drops below 60 days without initiating CIP chemical flushing.
+- Guideline 2: Always replace the complete gasket set (GSK-100) using torque-controlled plate tightening to A-dimension 342 mm.

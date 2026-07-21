@@ -1,0 +1,16 @@
+STATUTORY INSPECTION REPORT — PUMP P-401 (PESO FRAMEWORK)
+Inspection Ref: INSP-001 | Report ID: IR-2026-088 | Framework: PESO
+Target Asset: Centrifugal Pump P-401 | Scheduled Date: Overdue (Completed Late)
+
+1. INSPECTION SUMMARY
+- Assigned Inspector: Shreeharsharumade29 (Maintenance Engineer)
+- Audit Framework: PESO Statutory Safety Guidelines
+- Inspection Result: Needs Follow-up
+- Timeliness Status: Completed — Late
+- Reason for Delay: "Awaiting precision ultrasonic flow calibration meter from NABL laboratory."
+
+2. FINDINGS & OBSERVATIONS
+- Suction and discharge pressure gauge readings compliant (3.2 bar and 7.8 bar respectively).
+- Slight mechanical seal weeping detected at Plan 52 buffer reservoir (0.5 drops/min).
+- Recommended Follow-up: Schedule mechanical seal gland packing check within 14 days.
+- Safety Officer Notification: Dispatched automatically via create_notification RPC.

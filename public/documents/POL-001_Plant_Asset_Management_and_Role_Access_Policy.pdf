@@ -1,0 +1,13 @@
+CORPORATE POLICY — PLANT ASSET MANAGEMENT & ROLE ACCESS CONTROL
+Policy Ref: POL-001 | Version: v5.0 | Approved By: Executive Board
+
+1. PURPOSE & APPLICABILITY
+Establishes clear operational governance, role permissions, and asset management responsibilities across all industrial plants.
+
+2. ROLE RESPONSIBILITIES MATRIX
+- Plant Manager: Executive oversight of plant KPIs, approval of spare part purchase orders, verification of completed high-priority work orders.
+- Maintenance Engineer: On-ground work order execution, preventive maintenance logging, spare part stock checks, LOTO compliance.
+- Reliability Engineer: Conducting Root Cause Analysis (RCA), predictive maintenance modeling, RUL evaluation, vibration telemetry analysis.
+- Quality Engineer: Managing non-conformance reports (NCRs), scheduling and executing statutory compliance audits, ISO 9001 quality framework maintenance.
+- Safety Officer: HSE policy enforcement, safety inspection tracking, receiving completion alerts, managing machine operating licenses and insurance coverage.
+- Document Controller: Ingestion and metadata tagging of technical manuals, engineering drawings, SOPs, and compliance records in the AI Document Repository.

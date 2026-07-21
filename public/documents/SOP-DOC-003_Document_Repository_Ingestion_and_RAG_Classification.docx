@@ -1,0 +1,12 @@
+STANDARD OPERATING PROCEDURE — DOCUMENT REPOSITORY INGESTION & RAG INDEXING
+Document Ref: SOP-DOC-003 | Version: v1.2 | Role: Document Controller
+
+1. PURPOSE
+Defines procedures for uploading technical manuals, SOPs, engineering drawings, and inspection reports into the AI Document Repository to ensure high-accuracy Retrieval-Augmented Generation (RAG) by the AI Copilot.
+
+2. METADATA TAGGING REQUIREMENTS
+When uploading a file in /app/documents:
+- Name: Standardized naming convention (e.g. TM-P401-001_Flowserve_Manual.pdf)
+- Category: Select exact category (Technical Manuals, SOPs, Engineering Drawings, Audit & Compliance, etc.)
+- Asset ID: Map to specific asset code (P-401, C-12, HX-7, R-3, TURBINE_A12, COMPRESSOR_H4, GENERATOR_G1) or '—' for general plant documents.
+- Version: Record official revision number (e.g., v1.0, v2.1).

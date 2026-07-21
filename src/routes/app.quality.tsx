@@ -49,16 +49,19 @@ async function insertNotification(
   priority: "high" | "medium" | "low" = "medium",
   role?: string,
 ) {
-  const { data, error } = await supabase.rpc("create_notification", {
-    target_user_id: userId,
-    title,
-    message,
-    type,
-    metadata: { category: "compliance", priority, role },
-  });
-  if (error) {
-    console.error("Failed to insert notification via RPC:", error);
-    throw new Error(error.message);
+  try {
+    const { error } = await supabase.rpc("create_notification", {
+      target_user_id: userId,
+      title,
+      message,
+      type,
+      metadata: { category: "compliance", priority, role },
+    });
+    if (error) {
+      console.warn("Notification RPC warning (non-blocking):", error.message);
+    }
+  } catch (err) {
+    console.warn("Notification delivery warning (non-blocking):", err);
   }
 }
 
@@ -223,6 +226,7 @@ function Page() {
 
   // Modal states
   const [showNcrModal, setShowNcrModal] = useState(false);
+  const [submittingNcr, setSubmittingNcr] = useState(false);
   const [showInspectModal, setShowInspectModal] = useState(false);
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [selectedNcr, setSelectedNcr] = useState<NCR | null>(null);
@@ -373,18 +377,24 @@ function Page() {
   // ── handlers ──
   const handleCreateNcr = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ncrForm.ncr_number.trim() || !ncrForm.description.trim()) {
+      toast.error("Please provide both an NCR Reference Number and Description.");
+      return;
+    }
+
+    setSubmittingNcr(true);
     try {
       const { error } = await supabase.from("ncrs").insert({
-        ncr_number: ncrForm.ncr_number,
-        description: ncrForm.description,
+        ncr_number: ncrForm.ncr_number.trim(),
+        description: ncrForm.description.trim(),
         severity: ncrForm.severity,
         status: "Open",
         framework_ref: ncrForm.framework_ref,
       });
       if (error) throw error;
 
-      // Notify quality_engineer and safety_officer roles
-      await Promise.all([
+      // Dispatch non-blocking notifications for relevant roles
+      Promise.all([
         insertNotification(
           null,
           `New NCR Logged: ${ncrForm.ncr_number}`,
@@ -409,9 +419,9 @@ function Page() {
               : "medium",
           "safety_officer",
         ),
-      ]);
+      ]).catch((err) => console.warn("NCR notification dispatch warning:", err));
 
-      toast.success("NCR logged successfully");
+      toast.success(`NCR ${ncrForm.ncr_number} logged successfully`);
       setShowNcrModal(false);
       setNcrForm({
         ncr_number: "",
@@ -419,9 +429,12 @@ function Page() {
         severity: "Medium",
         framework_ref: "ISO 9001",
       });
-      fetchData();
+      await fetchData();
     } catch (err: unknown) {
+      console.error("Failed to log NCR:", err);
       toast.error("Failed to log NCR: " + (err as Error).message);
+    } finally {
+      setSubmittingNcr(false);
     }
   };
 
@@ -1348,8 +1361,15 @@ function Page() {
               >
                 Cancel
               </Button>
-              <Button type="submit" className="w-full text-xs h-8 btn-hero">
-                Log Report
+              <Button
+                type="submit"
+                disabled={submittingNcr}
+                className="w-full text-xs h-8 btn-hero disabled:opacity-50"
+              >
+                {submittingNcr ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                ) : null}
+                {submittingNcr ? "Logging..." : "Log Report"}
               </Button>
             </div>
           </form>

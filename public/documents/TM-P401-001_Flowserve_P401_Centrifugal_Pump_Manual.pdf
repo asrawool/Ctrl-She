@@ -1,0 +1,32 @@
+INTELLIPLANT AI TECHNICAL MANUAL — FLOWSERVE P-401 CENTRIFUGAL PUMP
+Document Ref: TM-P401-001 | Version: v3.2 | Asset Code: P-401 | Location: Plant A
+
+1. SYSTEM OVERVIEW & SPECIFICATIONS
+The P-401 Centrifugal Pump is a heavy-duty single-stage end-suction pump manufactured by Flowserve, designed for continuous hydrocarbon fluid transport in Plant A.
+- Nominal Flow Rate: 450 m³/h
+- Max Head: 85 meters
+- Motor Power: 15 kW (3-Phase 415V, 50Hz)
+- Impeller Diameter: 315 mm (Tolerance: ±0.05 mm)
+- Mechanical Seal Type: Double Cartridge Seal with API Plan 11/52 Flushing System
+- Operating Temperature Limit: -20°C to 180°C
+
+2. LUBRICATION & MAINTENANCE INTERVALS
+- Primary Lubricant: Mobilith SHC 220 Synthetic Grease
+- Relubrication Interval: 1,400 Operating Hours (Reduced from 2,000h per RCA-2024-118 recommendations).
+- Grease Quantity per Bearing: 45 grams
+- Oil Reservoir Capacity: 2.5 Liters (Shell Tellus S2 MX 68)
+- Oil Sampling & Spectrometric Analysis: Every 90 Days
+
+3. VIBRATION THRESHOLDS & CONDITION MONITORING
+Vibration telemetry is continuously fed into the IntelliPlant AI Analytics module.
+- Normal Operating Level: < 2.5 mm/s RMS
+- Warning Level (Alert): 4.2 mm/s RMS — Requires inspection scheduling within 48 hours.
+- Trip / Alarm Level: 7.1 mm/s RMS — Immediate emergency shutdown protocol.
+- Bearing Starvation Symptom: High-frequency acceleration peaks (10 kHz - 20 kHz peak-value spectrum) accompanied by a 12°C temperature rise above ambient baseline.
+
+4. TROUBLESHOOTING & REPAIR PROCEDURES
+Symptom: Excessive vibration > 4.2 mm/s and temperature rise.
+Step 1: Check lube reservoir level and inspect sight glass for discoloration or water contamination.
+Step 2: Perform laser alignment verification using Fixturlaser NXA (radial offset < 0.03 mm, angular tilt < 0.05°).
+Step 3: If bearing starvation is suspected, inject 45g Mobilith SHC 220 grease and monitor temperature decay for 30 minutes.
+Step 4: Log all findings in the Maintenance Intelligence module under Work Order WO-101.

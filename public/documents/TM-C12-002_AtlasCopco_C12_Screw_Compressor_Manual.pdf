@@ -1,0 +1,15 @@
+INTELLIPLANT AI TECHNICAL MANUAL — ATLAS COPCO C-12 SCREW COMPRESSOR
+Document Ref: TM-C12-002 | Version: v2.1 | Asset Code: C-12 | Location: Plant A
+
+1. COMPRESSOR SPECIFICATIONS
+- Model: Atlas Copco GA-90 Rotary Screw Air Compressor
+- Free Air Delivery (FAD): 16.2 m³/min at 7.5 bar
+- Rated Motor Power: 90 kW
+- Remaining Useful Life (RUL) Baseline: 320 Days
+- Lubricant: Shell Corena S4 R 68 (Full Synthetic)
+
+2. PREDICTIVE MAINTENANCE & RUL FORECASTING
+IntelliPlant AI continuously calculates Remaining Useful Life (RUL) for C-12 based on rotor vibration FFT spectra, oil acid number (TAN), and intake differential pressure.
+- Intake Filter Max Differential Pressure: 0.05 bar (Replace filter element FE-77 if delta-P > 0.08 bar).
+- Oil Separator Element Replacement: Every 4,000 Operating Hours.
+- Rotor Alignment Check: Annually during scheduled turnaround.

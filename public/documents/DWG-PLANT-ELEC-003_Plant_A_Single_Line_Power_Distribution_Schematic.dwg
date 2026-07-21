@@ -1,0 +1,8 @@
+ELECTRICAL SINGLE LINE DIAGRAM (SLD) — PLANT A & B POWER DISTRIBUTION
+Drawing Ref: DWG-PLANT-ELEC-003 | Rev 3 | Electrical Engineering Department
+
+1. POWER SOURCES & BUSBAR RATING
+- Grid Supply: 11 kV Substation Transformer T-1 (5 MVA, 11kV/415V, Delta/Star).
+- Emergency Backup: Power Generator G1 (CAT-3516 1500 kVA Diesel Generator Set).
+- Auto-Transfer Switch (ATS-01): Operates within 4.5 seconds of grid loss.
+- Main Motor Control Center (MCC-4A): Supplies 415V 3-phase power to Pump P-401 (15kW), Screw Compressor C-12 (90kW), and Reactor R-3 agitator drive.

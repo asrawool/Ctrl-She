@@ -1,0 +1,10 @@
+LESSONS LEARNED CASE STUDY — PUMP P-401 BEARING FAILURE
+Ref: LL-2026-001 | Origin Incident: RCA-2024-118 / IR-2024-118 | Asset: P-401
+
+1. EXECUTIVE SUMMARY & FAILURE CONTEXT
+During peak summer operating conditions in July 2026, Pump P-401 experienced severe bearing starvation resulting in vibration exceeding 5.8 mm/s. The investigation revealed that the standard 2,000-hour relubrication interval was inadequate under high ambient temperatures.
+
+2. KEY LESSONS & PREVENTIVE STANDARDS
+- Lesson 1: Relubrication intervals must be dynamically reduced during high ambient temperature periods (1,400h protocol implemented).
+- Lesson 2: Statutory inspections must never be deferred — the overdue inspection INSP-001 on P-401 delayed early detection of grease degradation.
+- Recommended AI Copilot Query: "How to prevent bearing starvation on Pump P-401?"

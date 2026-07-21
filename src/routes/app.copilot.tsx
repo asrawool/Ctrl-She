@@ -890,9 +890,22 @@ function Copilot() {
       const error = err as Error;
       console.error(error);
       toast.error("Failed to edit message: " + error.message);
-      // Re-hydrate full active chat on failure to align local state with DB
+      setActiveConv((prev) => {
+        if (!prev) return null;
+        const cleaned = prev.messages.filter((m) => m.id !== "temp-ai");
+        return {
+          ...prev,
+          messages: [
+            ...cleaned,
+            {
+              id: `error-${Date.now()}`,
+              role: "ai",
+              text: `⚠️ **Failed to process message:** ${error.message || "An error occurred."} Please try again.`,
+            },
+          ],
+        };
+      });
       fetchConvs();
-      setActiveId(activeConv.id);
     } finally {
       setBusy(false);
     }
@@ -1285,6 +1298,21 @@ function Copilot() {
       const error = err as Error;
       console.error(error);
       toast.error("Failed to fetch response: " + error.message);
+      setActiveConv((prev) => {
+        if (!prev) return null;
+        const cleaned = prev.messages.filter((m) => m.id !== "temp-ai");
+        return {
+          ...prev,
+          messages: [
+            ...cleaned,
+            {
+              id: `error-${Date.now()}`,
+              role: "ai",
+              text: `⚠️ **Failed to generate response:** ${error.message || "Request timed out or network error."} Please try again.`,
+            },
+          ],
+        };
+      });
     } finally {
       setBusy(false);
       setTimeout(
@@ -1836,9 +1864,13 @@ function Copilot() {
               <Button
                 type="submit"
                 disabled={!input.trim() || busy || uploading}
-                className="h-10 btn-hero"
+                className="h-10 btn-hero disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Send className="h-4 w-4" />
+                {busy ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-navy" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
               </Button>
             </form>
             <p className="mt-2 text-[10px] text-muted-foreground text-center italic">
@@ -2048,14 +2080,20 @@ function Bubble({
         }`}
       >
         {msg.loading ? (
-          <div className="flex gap-1">
-            {[0, 1, 2].map((i) => (
-              <span
-                key={i}
-                className="h-1.5 w-1.5 rounded-full bg-accent animate-bounce"
-                style={{ animationDelay: `${i * 100}ms` }}
-              />
-            ))}
+          <div className="flex items-center gap-2.5 py-0.5">
+            <Bot className="h-4 w-4 text-accent animate-pulse shrink-0" />
+            <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+              AI Copilot is thinking
+              <span className="inline-flex gap-1">
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    className="h-1.5 w-1.5 rounded-full bg-accent animate-bounce"
+                    style={{ animationDelay: `${i * 150}ms` }}
+                  />
+                ))}
+              </span>
+            </span>
           </div>
         ) : isEditing ? (
           <div className="space-y-2 min-w-[200px]">

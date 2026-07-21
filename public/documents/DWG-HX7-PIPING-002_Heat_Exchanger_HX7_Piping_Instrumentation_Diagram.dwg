@@ -1,0 +1,10 @@
+PIPING & INSTRUMENTATION DIAGRAM (P&ID) — HEAT EXCHANGER HX-7
+Drawing Ref: DWG-HX7-PIPING-002 | Sheet 1 of 1 | CAD Ref: PID-HX7-REV1
+Asset Association: Heat Exchanger HX-7 (Plant B)
+
+1. INSTRUMENTATION TAGS & NOZZLE CONNECTIONS
+- Cold Inlet Nozzle N1: 8" Flange | Temp Transmitter TE-701 | Pressure Gauge PG-701
+- Cold Outlet Nozzle N2: 8" Flange | Temp Transmitter TE-702 | Differential Pressure Transmitter PDT-705
+- Hot Inlet Nozzle N3: 6" Flange | Control Valve FCV-710
+- Hot Outlet Nozzle N4: 6" Flange | Temp Transmitter TE-704
+- Safety Valve PSV-709: Set Pressure 16.0 bar G on Hot Side Outlet.
