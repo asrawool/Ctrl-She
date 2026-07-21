@@ -318,6 +318,8 @@ function Page() {
           .select("user_id, full_name, email")
           .order("full_name", { ascending: true }),
         supabase
+          .from("user_roles")
+          .select("user_id, role")
       ]);
 
       setFrameworks(fwData || []);

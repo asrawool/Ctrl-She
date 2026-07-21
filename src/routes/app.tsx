@@ -57,6 +57,16 @@ export const Route = createFileRoute("/app")({
       // Sync server-side verified role to client-side Zustand store to prevent client spoofing
       useAuth.getState().setRole(roleRes.role, roleRes.customRole || undefined);
 
+      // Hydrate user profile name to sync the fullName store state
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("full_name")
+        .eq("user_id", session.user.id)
+        .single();
+      if (profile && profile.full_name) {
+        useAuth.getState().setFullName(profile.full_name);
+      }
+
       // 3. Server-side module access authorization guard
       const path = location.pathname;
       const seg = path.split("/")[2];

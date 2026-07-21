@@ -393,12 +393,53 @@ serve(async (req) => {
     console.log(`Processing document: ${doc.name} (${doc.id})`);
 
     // 2. Download file from storage
-    const { data: fileBlob, error: downloadError } = await supabase.storage
-      .from(DOCUMENTS_BUCKET)
+    let fileBlob = null;
+    let downloadError = null;
+
+    // Try copilot-attachments first
+    const { data: cData, error: cErr } = await supabase.storage
+      .from("copilot-attachments")
       .download(doc.storage_path);
+    
+    if (!cErr && cData && cData.size > 0) {
+      fileBlob = cData;
+    } else {
+      // Try documents bucket (with prefix stripped if present)
+      const stripped = doc.storage_path.startsWith("documents/")
+        ? doc.storage_path.replace("documents/", "")
+        : doc.storage_path;
+      
+      const { data: dData, error: dErr } = await supabase.storage
+        .from("documents")
+        .download(stripped);
+      
+      if (!dErr && dData && dData.size > 0) {
+        fileBlob = dData;
+      } else {
+        // Try fallback by name matching in documents
+        const { data: docFiles } = await supabase.storage
+          .from("documents")
+          .list("", { limit: 1000 });
+        const matched = docFiles?.find(
+          (f: any) => f.name.endsWith(`-${doc.name}`) || f.name === doc.name,
+        );
+        if (matched) {
+          const { data: mData, error: mErr } = await supabase.storage
+            .from("documents")
+            .download(matched.name);
+          if (!mErr && mData && mData.size > 0) {
+            fileBlob = mData;
+          } else {
+            downloadError = mErr || dErr || cErr;
+          }
+        } else {
+          downloadError = dErr || cErr;
+        }
+      }
+    }
 
     if (downloadError || !fileBlob) {
-      throw new Error(`Storage download failed: ${downloadError?.message}`);
+      throw new Error(`Storage download failed: ${downloadError?.message || "File not found in any bucket"}`);
     }
 
     // 3. Extract text content

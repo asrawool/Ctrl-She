@@ -578,26 +578,33 @@ function Documents() {
     }
   };
 
-  const getDocumentFileBlob = async (doc: Doc): Promise<Blob | null> => {
+  const getResolvedStoragePath = async (doc: Doc): Promise<{ bucket: string; path: string } | null> => {
     if (!doc.storagePath) return null;
 
-    // 1. Try copilot-attachments bucket with storagePath
-    const { data: cData, error: cErr } = await supabase.storage
+    // 1. Try listing copilot-attachments bucket with storagePath
+    const lastSlash = doc.storagePath.lastIndexOf("/");
+    const folder = lastSlash !== -1 ? doc.storagePath.substring(0, lastSlash) : "";
+    const searchName = lastSlash !== -1 ? doc.storagePath.substring(lastSlash + 1) : doc.storagePath;
+
+    const { data: cData } = await supabase.storage
       .from("copilot-attachments")
-      .download(doc.storagePath);
-    if (!cErr && cData && cData.size > 0) {
-      return cData;
+      .list(folder, { search: searchName, limit: 1 });
+    
+    if (cData && cData.some(f => f.name === searchName)) {
+      return { bucket: "copilot-attachments", path: doc.storagePath };
     }
 
     // 2. Try documents bucket with storagePath (stripped of "documents/" prefix if present)
     const stripped = doc.storagePath.startsWith("documents/")
       ? doc.storagePath.replace("documents/", "")
       : doc.storagePath;
-    const { data: dData, error: dErr } = await supabase.storage
+
+    const { data: dData } = await supabase.storage
       .from("documents")
-      .download(stripped);
-    if (!dErr && dData && dData.size > 0) {
-      return dData;
+      .list("", { search: stripped, limit: 1 });
+    
+    if (dData && dData.some(f => f.name === stripped)) {
+      return { bucket: "documents", path: stripped };
     }
 
     // 3. Try listing documents bucket for matching file by name suffix
@@ -608,42 +615,101 @@ function Documents() {
       (f) => f.name.endsWith(`-${doc.name}`) || f.name === doc.name,
     );
     if (matched) {
-      const { data: mData, error: mErr } = await supabase.storage
-        .from("documents")
-        .download(matched.name);
-      if (!mErr && mData && mData.size > 0) {
-        return mData;
-      }
+      return { bucket: "documents", path: matched.name };
     }
 
     return null;
   };
 
   const handlePreview = async (doc: Doc) => {
-    const blob = await getDocumentFileBlob(doc);
-    if (!blob) {
-      toast.error(`No file available for "${doc.name}"`);
-      return;
+    const previewTab = window.open("", "_blank");
+    if (previewTab) {
+      previewTab.document.write(`
+        <html>
+          <head>
+            <title>Loading Preview...</title>
+            <style>
+              body {
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                background: #090e1a;
+                color: #f8fafc;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+              }
+              .spinner {
+                border: 3px solid rgba(255,255,255,0.1);
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                border-left-color: #06b6d4;
+                animation: spin 1s linear infinite;
+                margin-bottom: 16px;
+              }
+              @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            </style>
+          </head>
+          <body>
+            <div class="spinner"></div>
+            <div>Loading preview for ${doc.name}...</div>
+          </body>
+        </html>
+      `);
     }
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+
+    const resolved = await getResolvedStoragePath(doc);
+    if (resolved) {
+      const { data, error } = await supabase.storage
+        .from(resolved.bucket)
+        .createSignedUrl(resolved.path, 300);
+      
+      if (!error && data?.signedUrl) {
+        if (previewTab) {
+          previewTab.location.href = data.signedUrl;
+        }
+      } else {
+        if (previewTab) {
+          previewTab.close();
+        }
+        toast.error(`Failed to generate preview URL: ${error?.message || "File not found"}`);
+      }
+    } else {
+      if (previewTab) {
+        previewTab.close();
+      }
+      toast.error(`No file available for "${doc.name}"`);
+    }
   };
 
   const handleDownload = async (doc: Doc) => {
-    const blob = await getDocumentFileBlob(doc);
-    if (!blob) {
+    const resolved = await getResolvedStoragePath(doc);
+    if (!resolved) {
       toast.error(`No file available for "${doc.name}"`);
       return;
     }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = doc.name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+
+    try {
+      const { data, error } = await supabase.storage
+        .from(resolved.bucket)
+        .createSignedUrl(resolved.path, 300, { download: doc.name });
+      
+      if (error || !data?.signedUrl) {
+        toast.error(`Download failed: ${error?.message || "URL generation failed"}`);
+        return;
+      }
+
+      const a = document.createElement("a");
+      a.href = data.signedUrl;
+      a.download = doc.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err: any) {
+      toast.error(`Download failed: ${err.message}`);
+    }
   };
 
   const handleDelete = async (doc: Doc) => {
@@ -986,7 +1052,7 @@ function Documents() {
         </div>
 
         {/* Details panel */}
-        <aside className="rounded-2xl border border-border bg-card p-5 h-fit sticky top-20">
+        <aside className="rounded-2xl border border-border bg-card p-5 h-fit lg:sticky lg:top-20">
           {selected ? (
             editingDoc ? (
               <div className="space-y-4">
