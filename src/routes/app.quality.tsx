@@ -318,9 +318,6 @@ function Page() {
           .select("user_id, full_name, email")
           .order("full_name", { ascending: true }),
         supabase
-          .from("user_roles")
-          .select("user_id, role")
-          .eq("role", "maintenance_engineer"),
       ]);
 
       setFrameworks(fwData || []);
@@ -329,10 +326,7 @@ function Page() {
       setProfiles(profData || []);
 
       // Filter profiles by maintenance_engineer role
-      const engProfiles = (profData || []).filter((p) =>
-        (roleData || []).some((r) => r.user_id === p.user_id),
-      ) as { user_id: string; full_name: string; email: string }[];
-      setEngineers(engProfiles);
+     setEngineers(profData || []);
 
       // Check and auto-mark overdue inspections (non-blocking)
       if (insData && insData.length > 0) {
@@ -418,6 +412,20 @@ function Page() {
         framework_ref: ncrForm.framework_ref,
       });
       if (error) throw error;
+          const isNewFramework = !frameworks.some(
+      (f) =>
+        f.name.toLowerCase() ===
+        ncrForm.framework_ref.trim().toLowerCase(),
+    );
+
+    if (isNewFramework && ncrForm.framework_ref.trim()) {
+      await supabase.from("compliance_frameworks").insert({
+        name: ncrForm.framework_ref.trim(),
+        current_score: 0,
+        target_score: 80,
+        last_audit: new Date().toISOString().split("T")[0],
+      });
+    }
 
       // Dispatch non-blocking notifications for relevant roles
       Promise.all([
@@ -1363,19 +1371,17 @@ function Page() {
                 <label className="block text-muted-foreground mb-1">
                   Associated Compliance Framework
                 </label>
-                <select
-                  value={ncrForm.framework_ref}
-                  onChange={(e) =>
-                    setNcrForm({ ...ncrForm, framework_ref: e.target.value })
-                  }
-                  className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                >
-                  {frameworks.map((f) => (
-                    <option key={f.id} value={f.name}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
+                <CreatableCombobox
+            options={frameworkOptions}
+            value={ncrForm.framework_ref}
+            onChange={(v) =>
+              setNcrForm({
+                ...ncrForm,
+                framework_ref: v,
+              })
+            }
+            placeholder="Select or type a framework…"
+             />
               </div>
             </div>
             <div className="flex gap-2">

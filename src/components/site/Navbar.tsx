@@ -80,7 +80,7 @@ export function Navbar() {
             search={{ intent: "signup" }}
             className="btn-hero rounded-full px-5 py-2 text-sm font-semibold"
           >
-            Request Demo
+            Sign Up
           </Link>
         </div>
 
@@ -134,7 +134,7 @@ export function Navbar() {
               onClick={() => setOpen(false)}
               className="btn-hero rounded-full px-5 py-2 text-sm font-semibold text-center"
             >
-              Request Demo
+              Sign Up
             </Link>
           </div>
         </div>

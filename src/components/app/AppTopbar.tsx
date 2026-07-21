@@ -13,7 +13,7 @@ import {
   Boxes,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { useAuth, ROLES, getInitials } from "@/store/auth";
+import { useAuth, ROLES } from "@/store/auth";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -50,7 +50,7 @@ interface SearchResults {
 }
 
 export function AppTopbar() {
-  const { email, role, customRole, fullName, logout } = useAuth();
+  const { email, role, customRole, logout } = useAuth();
   const navigate = useNavigate();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [searchOpen, setSearchOpen] = useState(false);
@@ -135,29 +135,10 @@ export function AppTopbar() {
     return () => clearTimeout(timer);
   }, [q]);
 
-  useEffect(() => {
-    if (!fullName) {
-      supabase.auth.getUser().then(({ data: { user } }) => {
-        if (user) {
-          supabase
-            .from("user_profiles")
-            .select("full_name")
-            .eq("user_id", user.id)
-            .maybeSingle()
-            .then(({ data }) => {
-              if (data?.full_name) {
-                useAuth.getState().setFullName(data.full_name);
-              }
-            });
-        }
-      });
-    }
-  }, [fullName]);
-
   const segs = path.split("/").filter(Boolean);
   const roleLabel =
     role === "other" ? customRole : ROLES.find((r) => r.id === role)?.label;
-  const initials = getInitials(fullName, email);
+  const initials = (email ?? "U").slice(0, 2).toUpperCase();
 
   const handleLogout = () => {
     logout();
@@ -169,7 +150,7 @@ export function AppTopbar() {
   return (
     <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-background/95 backdrop-blur px-4 lg:px-6 h-16">
       {/* Breadcrumbs */}
-      <nav className="flex items-center gap-1.5 text-sm min-w-0 overflow-hidden">
+      <nav className="flex flex-1 items-center gap-1.5 text-sm min-w-0 overflow-hidden">
         {segs.map((s, i) => {
           const last = i === segs.length - 1;
           return (
@@ -186,7 +167,7 @@ export function AppTopbar() {
       </nav>
 
       {/* Search */}
-      <div className="ml-auto hidden md:block relative">
+      <div className="hidden md:block relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
           value={q}
@@ -348,6 +329,7 @@ export function AppTopbar() {
       </div>
 
       {/* Profile */}
+      <div className="flex flex-1 justify-end"></div>
       <DropdownMenu>
         <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-lg pl-1 pr-2 py-1 hover:bg-muted transition">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-navy to-steel text-xs font-bold text-white">
@@ -355,16 +337,16 @@ export function AppTopbar() {
           </span>
           <div className="text-left leading-tight">
             <div className="text-xs font-semibold truncate max-w-[140px]">
-              {fullName || roleLabel}
+              {roleLabel}
             </div>
             <div className="text-[10px] text-muted-foreground truncate max-w-[140px]">
-              {roleLabel}
+              {initials}
             </div>
           </div>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel>
-            <div className="text-xs font-semibold truncate">{fullName || email}</div>
+            <div className="text-xs font-semibold truncate">{initials}</div>
             <div className="text-[10px] font-normal text-muted-foreground truncate">
               {roleLabel}
             </div>
