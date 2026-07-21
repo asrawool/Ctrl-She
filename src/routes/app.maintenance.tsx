@@ -271,6 +271,33 @@ function Page() {
     fetchData();
   }, []);
 
+  // Freshly fetch engineers when work order modal opens
+  useEffect(() => {
+    if (showWoModal) {
+      const refetchEngineers = async () => {
+        try {
+          const [
+            { data: profData },
+            { data: roleData },
+          ] = await Promise.all([
+            supabase.from("user_profiles").select("user_id, full_name, email"),
+            supabase
+              .from("user_roles")
+              .select("user_id, role")
+              .eq("role", "maintenance_engineer"),
+          ]);
+          const engProfiles = (profData || []).filter((p) =>
+            (roleData || []).some((r) => r.user_id === p.user_id),
+          ) as { user_id: string; full_name: string; email: string }[];
+          setEngineers(engProfiles);
+        } catch (err) {
+          console.error("Failed to refresh engineers list on modal open:", err);
+        }
+      };
+      refetchEngineers();
+    }
+  }, [showWoModal]);
+
   const handleUpdateAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assetForm.id) {

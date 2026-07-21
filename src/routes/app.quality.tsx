@@ -394,6 +394,27 @@ function Page() {
     fetchData();
   }, []);
 
+  // Freshly fetch inspectors when inspect modal opens
+  useEffect(() => {
+    if (showInspectModal) {
+      const refetchInspectors = async () => {
+        try {
+          const { data: profData } = await supabase
+            .from("user_profiles")
+            .select("user_id, full_name, email")
+            .order("full_name", { ascending: true });
+          if (profData) {
+            setProfiles(profData);
+            setEngineers(profData);
+          }
+        } catch (err) {
+          console.error("Failed to refresh inspectors list on modal open:", err);
+        }
+      };
+      refetchInspectors();
+    }
+  }, [showInspectModal]);
+
   // ── handlers ──
   const handleCreateNcr = async (e: React.FormEvent) => {
     e.preventDefault();
