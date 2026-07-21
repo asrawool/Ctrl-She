@@ -7,9 +7,7 @@ const links = [
   ["Platform", "#platform"],
   ["Solutions", "#solutions"],
   ["AI Copilot", "#copilot"],
-  ["Knowledge Hub", "#knowledge"],
   ["Industries", "#industries"],
-  ["Pricing", "#pricing"],
 ];
 
 export function Navbar() {
@@ -37,7 +35,7 @@ export function Navbar() {
           </span>
           <div className="leading-tight">
             <div className="font-display text-[15px] font-bold tracking-tight">
-              IntelliPlant<span className="text-cyan">.AI</span>
+              Synapse<span className="text-cyan">Ai</span>
             </div>
             <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">
               Operations Brain

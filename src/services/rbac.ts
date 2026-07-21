@@ -199,9 +199,7 @@ export function hasPermission(
   return WRITE_PERMISSIONS[role]?.has(action) ?? false;
 }
 
-export function getActionRequiredRolesLabel(
-  action: OperationalAction,
-): string {
+export function getActionRequiredRolesLabel(action: OperationalAction): string {
   const allowed: string[] = [];
 
   (Object.keys(WRITE_PERMISSIONS) as Role[]).forEach((r) => {

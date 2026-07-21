@@ -70,7 +70,7 @@ export function Features() {
             Every discipline. Every plant.
           </h2>
           <p className="mt-4 text-lg text-muted-foreground">
-            IntelliPlant AI unifies decades of engineering knowledge — manuals,
+            SynapseAi unifies decades of engineering knowledge — manuals,
             drawings, SOPs, incident logs and tribal wisdom — into a secure,
             explorable intelligence layer.
           </p>

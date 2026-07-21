@@ -19,7 +19,7 @@ import { Notification } from "@/types/operational";
 import { useAuth } from "@/store/auth";
 
 export const Route = createFileRoute("/app/notifications")({
-  head: () => ({ meta: [{ title: "Notifications — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Notifications — SynapseAi" }] }),
   component: Page,
 });
 

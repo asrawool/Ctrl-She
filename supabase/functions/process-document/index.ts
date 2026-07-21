@@ -67,7 +67,7 @@ ${textContent.substring(0, 2500)}`;
           "X-Title": "IntelliPlant Classifier",
         },
         body: JSON.stringify({
-          model:  "openai/gpt-oss-20b:free",
+          model: "openai/gpt-oss-20b:free",
           messages: [
             { role: "system", content: systemInstructions },
             { role: "user", content: userPrompt },

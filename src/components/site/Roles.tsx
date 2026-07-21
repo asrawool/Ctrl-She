@@ -23,17 +23,17 @@ const roles = [
   },
   {
     icon: HardHat,
-    name: "Production Engineer",
-    tags: ["OEE", "Cycle Times", "Downtime", "Batch Reports"],
+    name: "Reliability Engineer",
+    tags: ["Asset Health", "Failure Analysis", "RCA", "Reliability"],
   },
   {
     icon: ClipboardCheck,
-    name: "Quality / QA Manager",
+    name: "Quality Engineer",
     tags: ["CAPA", "Deviations", "Audits", "Compliance"],
   },
   {
     icon: ShieldAlert,
-    name: "HSE / Safety Officer",
+    name: "Safety Officer",
     tags: ["Permits", "Incidents", "PPE", "Risk"],
   },
   {
@@ -48,8 +48,13 @@ const roles = [
   },
   {
     icon: Cpu,
-    name: "Industry 4.0 Engineer",
+    name: "Industrial Digital Transformation Engineer",
     tags: ["Digital Twin", "IoT", "Knowledge Graph"],
+  },
+  {
+    icon: Building2,
+    name: "Other",
+    tags: ["Knowledge", "Documents", "Notifications", "Help"],
   },
 ];
 
@@ -77,8 +82,8 @@ export function Roles() {
             </h2>
           </div>
           <p className="max-w-md text-white/70">
-            From the shop floor to the board room — 14+ pre-configured personas
-            with tailored dashboards, permissions and AI copilots.
+            From the shop floor to the board room — nine configured roles with
+            tailored dashboards, permissions and AI copilots.
           </p>
         </div>
 

@@ -11,7 +11,7 @@ import { saveUserRoleFn } from "@/services/webauthn.server";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/auth/role")({
-  head: () => ({ meta: [{ title: "Select Role — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Select Role — SynapseAi" }] }),
   beforeLoad: async () => {
     if (typeof window !== "undefined") {
       await ensureAuthHydrated();

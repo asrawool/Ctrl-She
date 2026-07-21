@@ -2,8 +2,6 @@ import { useState, useEffect } from "react";
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
   Search,
-  Moon,
-  Sun,
   LogOut,
   User,
   Settings as SettingsIcon,
@@ -52,7 +50,7 @@ interface SearchResults {
 }
 
 export function AppTopbar() {
-  const { email, role, customRole, theme, toggleTheme, logout } = useAuth();
+  const { email, role, customRole, logout } = useAuth();
   const navigate = useNavigate();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [searchOpen, setSearchOpen] = useState(false);
@@ -330,38 +328,24 @@ export function AppTopbar() {
         )}
       </div>
 
-      {/* Theme */}
-      <button
-        onClick={toggleTheme}
-        className="grid h-9 w-9 place-items-center rounded-lg border border-border hover:bg-muted transition"
-        title="Toggle theme"
-      >
-        {theme === "dark" ? (
-          <Sun className="h-4 w-4" />
-        ) : (
-          <Moon className="h-4 w-4" />
-        )}
-      </button>
-
       {/* Profile */}
       <DropdownMenu>
         <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-lg pl-1 pr-2 py-1 hover:bg-muted transition">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-navy to-steel text-xs font-bold text-white">
             {initials}
           </span>
-          <div className="hidden lg:block text-left leading-tight">
+          <div className="text-left leading-tight">
             <div className="text-xs font-semibold truncate max-w-[140px]">
-              {email}
-            </div>
-            <div className="text-[10px] text-muted-foreground truncate max-w-[140px]">
               {roleLabel}
             </div>
+            <div className="text-[10px] text-muted-foreground truncate max-w-[140px]">
+              {initials}
+            </div>
           </div>
-          <ChevronDown className="h-3 w-3 text-muted-foreground" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel>
-            <div className="text-xs font-semibold truncate">{email}</div>
+            <div className="text-xs font-semibold truncate">{initials}</div>
             <div className="text-[10px] font-normal text-muted-foreground truncate">
               {roleLabel}
             </div>

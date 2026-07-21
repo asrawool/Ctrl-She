@@ -35,7 +35,7 @@ export function AuthShell({
           </span>
           <div className="leading-tight">
             <div className="font-display text-lg font-bold">
-              IntelliPlant<span className="text-cyan">.AI</span>
+              Synapse<span className="text-cyan">Ai</span>
             </div>
             <div className="text-[10px] uppercase tracking-[0.22em] text-white/60">
               Operations Brain

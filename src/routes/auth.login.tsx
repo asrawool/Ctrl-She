@@ -25,7 +25,7 @@ export const Route = createFileRoute("/auth/login")({
   head: () => ({
     meta: [
       {
-        title: "Authentication — IntelliPlant AI",
+        title: "Authentication — SynapseAi",
       },
     ],
   }),
@@ -130,8 +130,8 @@ function LoginPage() {
       title={isSignUp ? "Create your account" : "Welcome back, sign in"}
       subtitle={
         isSignUp
-          ? "Register for IntelliPlant. We'll send a one-time verification code to your work email."
-          : "Sign in to IntelliPlant. We'll send a one-time verification code to your work email."
+          ? "Register for SynapseAi. We'll send a one-time verification code to your work email."
+          : "Sign in to SynapseAi. We'll send a one-time verification code to your work email."
       }
     >
       <form onSubmit={submit} className="space-y-4">
@@ -253,7 +253,7 @@ function LoginPage() {
               </>
             ) : (
               <>
-                New to IntelliPlant?{" "}
+                New to SynapseAi?{" "}
                 <Link
                   to="/auth/login"
                   search={{ intent: "signup" }}

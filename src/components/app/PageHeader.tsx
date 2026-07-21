@@ -11,8 +11,12 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+    <div className="mb-6 space-y-4 text-center">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mx-auto"
+      >
         <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">
           {title}
         </h1>
@@ -23,7 +27,9 @@ export function PageHeader({
         )}
       </motion.div>
       {actions && (
-        <div className="flex items-center gap-2 flex-wrap">{actions}</div>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {actions}
+        </div>
       )}
     </div>
   );

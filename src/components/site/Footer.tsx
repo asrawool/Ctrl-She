@@ -30,7 +30,7 @@ export function Footer() {
               <Cpu className="h-4.5 w-4.5 text-[#05122a]" strokeWidth={2.5} />
             </span>
             <div className="font-display text-lg font-bold text-white">
-              IntelliPlant<span className="text-cyan">.AI</span>
+              Synapse<span className="text-cyan">Ai</span>
             </div>
           </div>
           <p className="mt-4 text-sm max-w-sm">
@@ -69,9 +69,7 @@ export function Footer() {
       </div>
 
       <div className="mx-auto max-w-7xl px-6 mt-14 pt-6 border-t border-white/5 flex flex-wrap items-center justify-between gap-3 text-xs text-white/50">
-        <div>
-          © {new Date().getFullYear()} IntelliPlant AI. All rights reserved.
-        </div>
+        <div>© {new Date().getFullYear()} SynapseAi. All rights reserved.</div>
         <div className="flex gap-5">
           <a href="#" className="hover:text-white">
             Privacy
