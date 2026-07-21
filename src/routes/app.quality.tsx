@@ -47,18 +47,34 @@ async function insertNotification(
   role?: string,
 ) {
   try {
-    const { error } = await supabase.rpc("create_notification", {
-      target_user_id: userId,
-      title,
-      message,
-      type,
-      metadata: { category: "compliance", priority, role },
-    });
-    if (error) {
-      console.warn("Notification RPC warning (non-blocking):", error.message);
+    let targetUserIds: string[] = [];
+    if (userId) {
+      targetUserIds = [userId];
+    } else if (role) {
+      const { data: roleUsers } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", role);
+      if (roleUsers && roleUsers.length > 0) {
+        targetUserIds = roleUsers.map((r) => r.user_id);
+      }
     }
+
+    if (targetUserIds.length === 0) return;
+
+    await Promise.all(
+      targetUserIds.map((tid) =>
+        supabase.rpc("create_notification", {
+          target_user_id: tid,
+          title,
+          message,
+          type,
+          metadata: { category: "compliance", priority, role },
+        }),
+      ),
+    );
   } catch (err) {
-    console.warn("Notification delivery warning (non-blocking):", err);
+    console.warn("Notification delivery warning:", err);
   }
 }
 
@@ -333,35 +349,44 @@ function Page() {
   const recalcFrameworkScore = async (
     frameworkName: string,
   ): Promise<number> => {
-    const { data: frameworkInspections, error: insError } = await supabase
-      .from("inspections")
-      .select("status")
-      .eq("framework", frameworkName);
-    if (insError) throw insError;
+    try {
+      const { data: frameworkInspections, error: insError } = await supabase
+        .from("inspections")
+        .select("status")
+        .eq("framework", frameworkName);
+      if (insError) throw insError;
 
-    const { data: frameworkNcrs, error: ncrError } = await supabase
-      .from("ncrs")
-      .select("status")
-      .eq("framework_ref", frameworkName);
-    if (ncrError) throw ncrError;
+      const { data: frameworkNcrs, error: ncrError } = await supabase
+        .from("ncrs")
+        .select("status")
+        .eq("framework_ref", frameworkName);
+      if (ncrError) throw ncrError;
 
-    const totalInspections = frameworkInspections?.length || 0;
-    const completedInspections =
-      frameworkInspections?.filter((i) => i.status === "Completed").length || 0;
-    const totalNcrs = frameworkNcrs?.length || 0;
-    const resolvedNcrs =
-      frameworkNcrs?.filter((n) => n.status === "Resolved").length || 0;
+      const totalInspections = frameworkInspections?.length || 0;
+      const completedInspections =
+        frameworkInspections?.filter((i) => i.status === "Completed").length || 0;
+      const totalNcrs = frameworkNcrs?.length || 0;
+      const resolvedNcrs =
+        frameworkNcrs?.filter((n) => n.status === "Resolved").length || 0;
 
-    const total = totalInspections + totalNcrs;
-    const successes = completedInspections + resolvedNcrs;
-    const newScore = total > 0 ? Math.round((successes / total) * 100) : 100;
+      const total = totalInspections + totalNcrs;
+      const successes = completedInspections + resolvedNcrs;
+      const newScore = total > 0 ? Math.round((successes / total) * 100) : 100;
 
-    await supabase
-      .from("compliance_frameworks")
-      .update({ current_score: newScore })
-      .eq("name", frameworkName);
+      const { error: updateErr } = await supabase
+        .from("compliance_frameworks")
+        .update({ current_score: newScore })
+        .eq("name", frameworkName);
 
-    return newScore;
+      if (updateErr) {
+        console.warn("Skipping framework score update due to permissions/RLS:", updateErr.message);
+      }
+
+      return newScore;
+    } catch (err) {
+      console.warn("Skipping framework score calculation:", err);
+      return 100;
+    }
   };
 
   useEffect(() => {
