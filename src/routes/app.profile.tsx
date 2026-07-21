@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useAuth, ROLES } from "@/store/auth";
+import { useAuth, ROLES, getInitials } from "@/store/auth";
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -89,6 +89,9 @@ function ProfilePage() {
           data: { token: session.access_token },
         });
         setProfile(res.profile);
+        if (res.profile?.full_name) {
+          useAuth.getState().setFullName(res.profile.full_name);
+        }
       } catch (err) {
         console.error("Failed to load profile:", err);
         toast.error("Could not load profile data.");
@@ -221,6 +224,7 @@ function ProfilePage() {
       await saveUserProfileFn({
         data: { token: session.access_token, ...profile },
       });
+      useAuth.getState().setFullName(profile.full_name);
       toast.success("Profile saved successfully!");
     } catch (err) {
       console.error("Profile save error:", err);
@@ -289,7 +293,7 @@ function ProfilePage() {
     );
   }
 
-  const initials = (email ?? "U").slice(0, 2).toUpperCase();
+  const initials = getInitials(profile.full_name, email);
 
   return (
     <>

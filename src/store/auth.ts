@@ -34,6 +34,7 @@ interface AuthState {
   email: string | null;
   role: Role | null;
   customRole: string | null;
+  fullName: string | null;
   step: AuthStep;
   otpVerified: boolean;
   faceVerified: boolean;
@@ -46,6 +47,7 @@ interface AuthState {
   setOtpVerified: (v: boolean) => void;
   setFaceVerified: (v: boolean) => void;
   setRole: (r: Role, custom?: string) => void;
+  setFullName: (name: string | null) => void;
   setLanguage: (l: string) => void;
   toggleTheme: () => void;
   setTheme: (theme: "light" | "dark") => void;
@@ -58,6 +60,7 @@ export const useAuth = create<AuthState>()(
       email: null,
       role: null,
       customRole: null,
+      fullName: null,
       step: "email",
       otpVerified: false,
       faceVerified: false,
@@ -87,6 +90,7 @@ export const useAuth = create<AuthState>()(
           step: "done",
           authenticated: true,
         }),
+      setFullName: (fullName) => set({ fullName }),
       setLanguage: (language) => set({ language }),
       toggleTheme: () =>
         set((s) => {
@@ -158,4 +162,18 @@ if (typeof window !== "undefined") {
       }
     }
   });
+}
+
+export function getInitials(name?: string | null, email?: string | null): string {
+  if (name && name.trim()) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  if (email && email.trim()) {
+    return email.trim().slice(0, 2).toUpperCase();
+  }
+  return "U";
 }

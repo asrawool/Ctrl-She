@@ -74,20 +74,39 @@ function Page() {
     priority: string = "medium",
     role?: string,
   ) => {
-    const { error } = await supabase.rpc("create_notification", {
-      target_user_id: targetUserId,
-      title,
-      message,
-      type: "info",
-      metadata: {
-        category: "maintenance",
-        priority: priority.toLowerCase(),
-        role,
-      },
-    });
-    if (error) {
-      console.error("Failed to send work order notification via RPC:", error);
-      toast.error("Notification failed: " + error.message);
+    try {
+      let targetUserIds: string[] = [];
+      if (targetUserId) {
+        targetUserIds = [targetUserId];
+      } else if (role) {
+        const { data: roleUsers } = await supabase
+          .from("user_roles")
+          .select("user_id")
+          .eq("role", role);
+        if (roleUsers && roleUsers.length > 0) {
+          targetUserIds = roleUsers.map((r) => r.user_id);
+        }
+      }
+
+      if (targetUserIds.length === 0) return;
+
+      await Promise.all(
+        targetUserIds.map((tid) =>
+          supabase.rpc("create_notification", {
+            target_user_id: tid,
+            title,
+            message,
+            type: "info",
+            metadata: {
+              category: "maintenance",
+              priority: priority.toLowerCase(),
+              role,
+            },
+          }),
+        ),
+      );
+    } catch (err) {
+      console.warn("Notification delivery warning:", err);
     }
   };
 

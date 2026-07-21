@@ -32,14 +32,17 @@ export const checkAndMarkOverdue = async (
   inspectionList: Inspection[],
   onStatusUpdated?: (overdueIds: string[]) => void,
 ) => {
-  const now = new Date();
-  const overdueItems = inspectionList.filter(
-    (i) => i.status === "Pending" && new Date(i.scheduled_date) < now,
-  );
-  if (overdueItems.length === 0) return;
-
   try {
-    await Promise.all(
+    const now = new Date();
+    const overdueItems = inspectionList.filter(
+      (i) =>
+        i.status === "Pending" &&
+        i.scheduled_date &&
+        new Date(i.scheduled_date) < now,
+    );
+    if (overdueItems.length === 0) return;
+
+    await Promise.allSettled(
       overdueItems.map((item) =>
         supabase
           .from("inspections")
@@ -52,7 +55,7 @@ export const checkAndMarkOverdue = async (
       onStatusUpdated(overdueItems.map((item) => item.id));
     }
 
-    // Send notifications
+    // Send notifications (non-blocking)
     const notifPromises: PromiseLike<unknown>[] = [];
     for (const item of overdueItems) {
       const title = `Inspection overdue: ${item.name}`;
@@ -92,9 +95,9 @@ export const checkAndMarkOverdue = async (
       }
     }
     if (notifPromises.length > 0) {
-      await Promise.all(notifPromises);
+      await Promise.allSettled(notifPromises);
     }
   } catch (err) {
-    console.error("Failed to mark overdue inspections:", err);
+    console.warn("Failed to mark overdue inspections (non-blocking):", err);
   }
 };

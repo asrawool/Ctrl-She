@@ -59,7 +59,7 @@ const monthlyTrend = [
 ];
 
 function Dashboard() {
-  const { email, role, customRole } = useAuth();
+  const { email, role, customRole, fullName } = useAuth();
   const navigate = useNavigate();
 
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -86,7 +86,26 @@ function Dashboard() {
 
   const roleLabel =
     role === "other" ? customRole : ROLES.find((r) => r.id === role)?.label;
-  const name = email?.split("@")[0] ?? "Engineer";
+  const displayName = fullName || (email ? email.split("@")[0] : "Engineer");
+
+  useEffect(() => {
+    if (!fullName) {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user) {
+          supabase
+            .from("user_profiles")
+            .select("full_name")
+            .eq("user_id", user.id)
+            .maybeSingle()
+            .then(({ data }) => {
+              if (data?.full_name) {
+                useAuth.getState().setFullName(data.full_name);
+              }
+            });
+        }
+      });
+    }
+  }, [fullName]);
 
   const fetchData = async () => {
     try {
@@ -253,7 +272,7 @@ function Dashboard() {
   return (
     <>
       <PageHeader
-        title={`Welcome back, ${name.charAt(0).toUpperCase() + name.slice(1)}`}
+        title={`Welcome back, ${displayName}`}
         description={`${roleLabel} · Plant Alpha · Shift A · ${new Date().toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })}`}
       />
 

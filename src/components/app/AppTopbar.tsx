@@ -13,7 +13,7 @@ import {
   Boxes,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { useAuth, ROLES } from "@/store/auth";
+import { useAuth, ROLES, getInitials } from "@/store/auth";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -50,7 +50,7 @@ interface SearchResults {
 }
 
 export function AppTopbar() {
-  const { email, role, customRole, logout } = useAuth();
+  const { email, role, customRole, fullName, logout } = useAuth();
   const navigate = useNavigate();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [searchOpen, setSearchOpen] = useState(false);
@@ -135,10 +135,29 @@ export function AppTopbar() {
     return () => clearTimeout(timer);
   }, [q]);
 
+  useEffect(() => {
+    if (!fullName) {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user) {
+          supabase
+            .from("user_profiles")
+            .select("full_name")
+            .eq("user_id", user.id)
+            .maybeSingle()
+            .then(({ data }) => {
+              if (data?.full_name) {
+                useAuth.getState().setFullName(data.full_name);
+              }
+            });
+        }
+      });
+    }
+  }, [fullName]);
+
   const segs = path.split("/").filter(Boolean);
   const roleLabel =
     role === "other" ? customRole : ROLES.find((r) => r.id === role)?.label;
-  const initials = (email ?? "U").slice(0, 2).toUpperCase();
+  const initials = getInitials(fullName, email);
 
   const handleLogout = () => {
     logout();
@@ -336,16 +355,16 @@ export function AppTopbar() {
           </span>
           <div className="text-left leading-tight">
             <div className="text-xs font-semibold truncate max-w-[140px]">
-              {roleLabel}
+              {fullName || roleLabel}
             </div>
             <div className="text-[10px] text-muted-foreground truncate max-w-[140px]">
-              {initials}
+              {roleLabel}
             </div>
           </div>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel>
-            <div className="text-xs font-semibold truncate">{initials}</div>
+            <div className="text-xs font-semibold truncate">{fullName || email}</div>
             <div className="text-[10px] font-normal text-muted-foreground truncate">
               {roleLabel}
             </div>

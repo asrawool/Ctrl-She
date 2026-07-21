@@ -341,7 +341,7 @@ function Page() {
               overdueIds.includes(i.id) ? { ...i, status: "Overdue" } : i,
             ),
           );
-        });
+        }).catch((err) => console.warn("Overdue check warning:", err));
       }
     } catch (e) {
       console.error(e);
