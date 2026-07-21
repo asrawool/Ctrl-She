@@ -299,40 +299,6 @@ Ctrl-She/
 
 ---
 
-# 🚀 Installation
-
-Clone the repository
-
-```bash
-git clone https://github.com/yourusername/Ctrl-She.git
-```
-
-Go inside project
-
-```bash
-cd Ctrl-She
-```
-
-Install dependencies
-
-```bash
-npm install
-```
-
-Run project
-
-```bash
-npm run dev
-```
-
-Open
-
-```
-http://localhost:5173
-```
-
----
-
 # 🔑 Environment Variables
 
 Create a `.env` file.
