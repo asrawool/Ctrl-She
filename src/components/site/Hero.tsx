@@ -56,7 +56,7 @@ export function Hero() {
               href="#demo"
               className="btn-hero inline-flex items-center gap-2 rounded-full px-7 py-3.5 text-sm font-semibold"
             >
-              Request Demo <ArrowRight className="h-4 w-4" />
+            Sign Up <ArrowRight className="h-4 w-4" />
             </a>
             <a
               href="#platform"
