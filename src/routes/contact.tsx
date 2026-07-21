@@ -90,7 +90,7 @@ function Contact() {
                   className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-accent"
                 />
                 <Button type="submit" className="w-full h-11 btn-hero">
-                  Request Demo
+                  Sign Up
                 </Button>
               </>
             )}
