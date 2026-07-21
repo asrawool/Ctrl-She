@@ -1,19 +1,26 @@
 # 🏭 Ctrl-She – AI-Powered Industrial Knowledge Platform
 
-<p align="center">
-  <img src="docs/logo.png" width="180" alt="Ctrl-She Logo">
-</p>
+# 🌐 Live Demo
 
-<p align="center">
+🚀 **Live Application:**  
+👉 https://ctrl-she.vercel.app
 
-![React](https://img.shields.io/badge/React-19-blue)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue)
-![Vite](https://img.shields.io/badge/Vite-Latest-purple)
-![Supabase](https://img.shields.io/badge/Supabase-Backend-green)
-![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-4.0-38BDF8)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+🎥 **Project Demo Video:**  
+👉 *(Add your YouTube/Google Drive/Loom link here)*
 
-</p>
+📑 **Presentation (Optional):**  
+👉 *(Add your PPT/PDF link here)*
+
+---
+
+## Quick Links
+
+| Resource | Link |
+|----------|------|
+| 🌐 Live Website | https://ctrl-she.vercel.app |
+| 🎥 Demo Video | Coming Soon |
+| 📂 GitHub Repository | https://github.com/yourusername/Ctrl-She |
+| 📊 Presentation | Coming Soon |
 
 ---
 
