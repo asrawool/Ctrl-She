@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Industrial Hexagon Base using theme cyan color #00C2FF -->
+  <polygon points="256,36 446,146 446,366 256,476 66,366 66,146" fill="#00C2FF" />
+  
+  <!-- 3-Node Connected Knowledge Graph -->
+  <line x1="256" y1="180" x2="175" y2="315" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round" />
+  <line x1="256" y1="180" x2="337" y2="315" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round" />
+  
+  <circle cx="256" cy="180" r="30" fill="#FFFFFF" />
+  <circle cx="175" cy="315" r="26" fill="#FFFFFF" />
+  <circle cx="337" cy="315" r="26" fill="#FFFFFF" />
+</svg>

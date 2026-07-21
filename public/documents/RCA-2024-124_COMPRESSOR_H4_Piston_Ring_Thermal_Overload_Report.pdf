@@ -1,0 +1,8 @@
+ROOT CAUSE ANALYSIS REPORT — HEAVY GAS COMPRESSOR H4
+Incident Ref: IR-2024-124 | Report ID: RCA-002 | Asset: Heavy Gas Compressor H4
+
+1. SYMPTOMS & CAUSES
+- Symptoms: Gas pressure drop across Stage 2 cylinder, high crankcase oil consumption.
+- Root Cause: Piston ring seal degradation resulting from thermal overload during extended continuous peak-load operation.
+- Corrective Actions: Replace complete seal kit, re-calibrate pressure sensor, convert action to Work Order WO-105.
+- Cross-Record Insight Note: Inspection INSP-003 on COMPRESSOR_H4 was 15 days overdue prior to this incident.

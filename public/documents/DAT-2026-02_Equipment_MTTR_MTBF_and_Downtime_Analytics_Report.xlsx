@@ -1,0 +1,14 @@
+PLANT MAINTENANCE ANALYTICS & KEY PERFORMANCE INDICATORS (KPIs)
+Report Period: Q1-Q2 2026 | Department: Reliability & Operations
+
+1. CORE MAINTENANCE METRICS
+- Mean Time Between Failures (MTBF): 740 Hours (Target: > 700h — PASS)
+- Mean Time To Repair (MTTR): 3.8 Hours (Target: < 4.0h — PASS)
+- Overall Equipment Effectiveness (OEE): 86.4%
+- Planned vs Unplanned Maintenance Ratio: 88% Planned / 12% Emergency Unplanned
+
+2. TOP RECURRING FAILURE MODES
+- Bearing Degradation & Lubrication Starvation: 34% of incidents (Primary asset: P-401)
+- Mechanical Seal Weeping & Gasket Blowout: 28% of incidents (Primary assets: HX-7, R-3)
+- Thermal Stress & Overheating: 18% of incidents (Primary assets: COMPRESSOR_H4, TURBINE_A12)
+- Electrical Sensor Drift: 12% of incidents

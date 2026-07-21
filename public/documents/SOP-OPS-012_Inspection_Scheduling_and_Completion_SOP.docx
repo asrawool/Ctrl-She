@@ -1,0 +1,18 @@
+STANDARD OPERATING PROCEDURE — INSPECTION SCHEDULING & COMPLETION WORKFLOW
+Document Ref: SOP-OPS-012 | Version: v4.0 | Approved By: Plant Manager & Quality Lead
+
+1. PURPOSE & SCOPE
+This SOP governs the end-to-end lifecycle of statutory and internal compliance inspections in the IntelliPlant AI system across all manufacturing plants.
+
+2. ROLES & RESPONSIBILITIES
+- Quality Engineer / Safety Officer: Schedules compliance inspections, assigns qualified Maintenance Engineers by email search, specifies inspection scope/instructions, and defines due dates.
+- Maintenance Engineer: Receives inspection assignments in the "My Assigned Compliance Inspections" panel on Maintenance Intelligence, performs physical checks, logs Pass/Fail/Needs Follow-up results, and records detailed findings.
+- Safety Officer: Receives automated real-time notifications upon inspection completion (including overdue delay reasons), monitors compliance framework scores, and tracks open NCRs.
+
+3. INSPECTION EXECUTION & OVERDUE DELAY TRACKING
+Step 3.1: Log into IntelliPlant AI and open the Quality & Compliance module or Maintenance Intelligence panel.
+Step 3.2: Select the assigned inspection item and click "Mark Completed".
+Step 3.3: Select Result: "Pass", "Fail", or "Needs Follow-up".
+Step 3.4: Enter detailed observations in the "Findings / Notes" field.
+Step 3.5: If the inspection status is Overdue (scheduled date in the past), the system mandates input in the "Reason for Delay" field. Enter a clear justification (e.g., "Awaiting precision calibration tools").
+Step 3.6: Upon submission, the system auto-calculates whether the completion was on-time or late, updates framework scores, and dispatches single-deduplicated notifications to the scheduler and Safety Officers.

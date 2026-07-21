@@ -1,0 +1,14 @@
+INTELLIPLANT AI TECHNICAL MANUAL — ALFA LAVAL HX-7 HEAT EXCHANGER
+Document Ref: TM-HX7-003 | Version: v1.4 | Asset Code: HX-7 | Location: Plant B
+
+1. OPERATIONAL RATING & SPECIFICATIONS
+- Model: Alfa Laval M10-MFM Plate Heat Exchanger
+- Design Pressure: 16 bar
+- Design Temperature: 150°C
+- Gasket Material: EPDM Clip-on Gaskets (Item Code: GSK-100)
+- Heat Transfer Area: 48.5 m²
+
+2. CRITICAL WARNINGS & FOULING MONITORING
+- RUL Critical Status: Currently rated at 52 Days RUL due to thermal stress and channel fouling.
+- Clean-In-Place (CIP) Flushing Interval: Every 6 months using 2% Nitric Acid solution at 60°C.
+- Hydrostatic Test Pressure: 24 bar for 30 minutes following any plate pack disassembly.

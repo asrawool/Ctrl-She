@@ -1,0 +1,13 @@
+STANDARD OPERATING PROCEDURE — WORK ORDER LIFECYCLE & SPARE PART REQUISITION
+Document Ref: SOP-MAINT-045 | Version: v2.5 | Department: Maintenance & Supply Chain
+
+1. WORK ORDER CREATION & ASSIGNMENT
+Maintenance Engineers create work orders directly or convert corrective actions from Root Cause Analyses (RCA).
+- Priority Levels: Critical (Immediate execution), High (24h), Medium (72h), Low (7 days).
+- Work Order Statuses: Pending -> Scheduled -> In Progress -> Completed — Pending Verification -> Completed.
+
+2. SPARE PART REQUISITION & INVENTORY STOCK CHECKS
+Step 2.1: Open Asset Inventory (/app/inventory) to verify spare part availability.
+Step 2.2: Check current stock levels against Minimum Quantity (min_qty) and Reorder Point (reorder_point).
+Step 2.3: For Pump P-401 bearing replacements, verify availability of Ball Bearing SKF-6205 (BRG-6205) and Mechanical Seal MS-201.
+Step 2.4: If stock level is below min_qty (e.g. Hydraulic Oil ISO 68 at 0 units), initiate a purchase requisition in the Procurement Workflow module for Plant Manager approval.

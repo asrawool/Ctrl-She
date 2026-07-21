@@ -1,0 +1,19 @@
+ROOT CAUSE ANALYSIS (RCA) REPORT — CENTRIFUGAL PUMP P-401
+Incident Ref: IR-2024-118 | Report ID: RCA-001 | Asset: Centrifugal Pump P-401
+Created By: Reliability Engineer (Asrawool28) | Incident Date: 2026-07-18
+
+1. INCIDENT SYMPTOMS
+- Excessive vibration > 4.2 mm/s (Peak recorded: 5.8 mm/s).
+- Bearing housing temperature rise 12°C above baseline (reaching 78°C).
+- Abnormal high-frequency screeching noise reported by Plant Operations.
+
+2. ROOT CAUSES IDENTIFIED
+- Cause 1: Bearing starvation due to grease degradation at elevated summer ambient operating temperatures (42°C).
+- Cause 2: Relubrication interval set too long (2000 operating hours).
+- Cause 3: High-vibration operating regime caused by minor pipe strain on suction header.
+
+3. CORRECTIVE ACTIONS & WORK ORDER CONVERSION
+- Action 1: Reduce lube interval from 2000h to 1400h (Updated in Technical Manual TM-P401-001).
+- Action 2: Converted to Work Order WO-101 ("P-401 Bearing & Lubrication Service") for immediate execution.
+- Action 3: Update SOP §6.3 for high-temperature operating protocols.
+- Cross-Record Insight Note: Statutory inspection INSP-001 on P-401 was 10 days overdue prior to this incident.

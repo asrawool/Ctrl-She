@@ -1,0 +1,9 @@
+MAINTENANCE ENGINEER SAFETY & LOTO MANUAL
+Document Ref: TRN-2026-004 | Target Role: Maintenance Engineers
+
+1. LOCKOUT / TAGOUT (LOTO) MANDATORY PROTOCOLS
+Prior to servicing high-voltage equipment (e.g., Compressor C-12 90kW motor) or pressure vessels (Reactor R-3):
+- Step 1: Isolate primary electrical circuit breaker and valve manifold.
+- Step 2: Apply personal safety lock and warning tag with Maintenance Engineer employee ID.
+- Step 3: Verify zero-energy state using calibrated multimeter and pressure gauge.
+- Step 4: Record LOTO verification step in work order notes before proceeding with maintenance.
