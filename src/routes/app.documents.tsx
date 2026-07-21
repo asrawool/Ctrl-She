@@ -578,37 +578,65 @@ function Documents() {
     }
   };
 
-  const handlePreview = async (doc: Doc) => {
-    if (!doc.storagePath) {
-      console.error("No storage path for this document — cannot preview.");
-      return;
-    }
-    const { data, error } = await supabase.storage
-      .from(DOCUMENTS_BUCKET)
+  const getDocumentFileBlob = async (doc: Doc): Promise<Blob | null> => {
+    if (!doc.storagePath) return null;
+
+    // 1. Try copilot-attachments bucket with storagePath
+    const { data: cData, error: cErr } = await supabase.storage
+      .from("copilot-attachments")
       .download(doc.storagePath);
-    if (error || !data) {
-      console.error("Preview failed:", error);
+    if (!cErr && cData && cData.size > 0) {
+      return cData;
+    }
+
+    // 2. Try documents bucket with storagePath (stripped of "documents/" prefix if present)
+    const stripped = doc.storagePath.startsWith("documents/")
+      ? doc.storagePath.replace("documents/", "")
+      : doc.storagePath;
+    const { data: dData, error: dErr } = await supabase.storage
+      .from("documents")
+      .download(stripped);
+    if (!dErr && dData && dData.size > 0) {
+      return dData;
+    }
+
+    // 3. Try listing documents bucket for matching file by name suffix
+    const { data: docFiles } = await supabase.storage
+      .from("documents")
+      .list("", { limit: 1000 });
+    const matched = docFiles?.find(
+      (f) => f.name.endsWith(`-${doc.name}`) || f.name === doc.name,
+    );
+    if (matched) {
+      const { data: mData, error: mErr } = await supabase.storage
+        .from("documents")
+        .download(matched.name);
+      if (!mErr && mData && mData.size > 0) {
+        return mData;
+      }
+    }
+
+    return null;
+  };
+
+  const handlePreview = async (doc: Doc) => {
+    const blob = await getDocumentFileBlob(doc);
+    if (!blob) {
+      toast.error(`No file available for "${doc.name}"`);
       return;
     }
-    const url = URL.createObjectURL(data);
+    const url = URL.createObjectURL(blob);
     window.open(url, "_blank");
-    // Revoke after a delay so the new tab has time to load it
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   const handleDownload = async (doc: Doc) => {
-    if (!doc.storagePath) {
-      console.error("No storage path for this document — cannot download.");
+    const blob = await getDocumentFileBlob(doc);
+    if (!blob) {
+      toast.error(`No file available for "${doc.name}"`);
       return;
     }
-    const { data, error } = await supabase.storage
-      .from(DOCUMENTS_BUCKET)
-      .download(doc.storagePath);
-    if (error || !data) {
-      console.error("Download failed:", error);
-      return;
-    }
-    const url = URL.createObjectURL(data);
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = doc.name;
@@ -867,9 +895,13 @@ function Documents() {
                           onClick={(e) => e.stopPropagation()}
                         >
                           <button
-                            disabled={isReprocessing}
+                            disabled={!canManageDocs || isReprocessing}
                             onClick={() => handleReprocess(d)}
-                            title="Reprocess this document (re-run extraction, OCR fallback and embedding)"
+                            title={
+                              !canManageDocs
+                                ? `Requires ${getActionRequiredRolesLabel("manage:documents")} role`
+                                : "Reprocess this document (re-run extraction, OCR fallback and embedding)"
+                            }
                             className="grid h-7 w-7 place-items-center rounded hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {isReprocessing ? (
@@ -912,12 +944,16 @@ function Documents() {
                           <Star className="h-4 w-4 fill-warning text-warning" />
                         )}
                         <button
-                          disabled={isReprocessing}
+                          disabled={!canManageDocs || isReprocessing}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleReprocess(d);
                           }}
-                          title="Reprocess this document"
+                          title={
+                            !canManageDocs
+                              ? `Requires ${getActionRequiredRolesLabel("manage:documents")} role`
+                              : "Reprocess this document"
+                          }
                           className="grid h-7 w-7 place-items-center rounded hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isReprocessing ? (

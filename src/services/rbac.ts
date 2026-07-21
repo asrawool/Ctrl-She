@@ -165,6 +165,7 @@ const WRITE_PERMISSIONS: Record<Role, Set<OperationalAction>> = {
     "update:compliance_frameworks",
     "create:certifications",
     "update:certifications",
+    "manage:documents",
   ]),
   safety_officer: new Set([
     "create:ncrs",
@@ -175,6 +176,7 @@ const WRITE_PERMISSIONS: Record<Role, Set<OperationalAction>> = {
     "update:insurance_policies",
     "create:machine_licenses",
     "update:machine_licenses",
+    "manage:documents",
   ]),
   document_controller: new Set(["manage:documents"]),
   digital_transformation: new Set([]),

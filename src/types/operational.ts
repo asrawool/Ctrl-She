@@ -88,6 +88,7 @@ export interface Inspection {
 export interface Reminder {
   id: string;
   user_id: string;
+  work_order_id?: string | null;
   description: string;
   due_at: string;
   is_notified: boolean;

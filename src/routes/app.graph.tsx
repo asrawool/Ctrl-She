@@ -171,10 +171,33 @@ function Graph() {
       });
       gNodes.push(...assetNodesList);
 
-      // 2. Documents — initial scatter, edges to mapped asset
+      // 2. Documents — initial scatter, edges to mapped asset (strict exact matching)
       (docData || []).forEach((d, index) => {
         const docId = `doc-${d.id}`;
-        const mappedAsset = assetNodesList.find((an) => an.id === d.asset);
+        let mappedAsset: Node | undefined = undefined;
+
+        if (d.asset && d.asset !== "—" && d.asset.trim() !== "") {
+          const rawAsset = d.asset.trim().toUpperCase();
+          const normDocAsset = rawAsset.replace(/[^A-Z0-9]/g, "");
+
+          mappedAsset = assetNodesList.find((an) => {
+            const normId = an.id.toUpperCase().replace(/[^A-Z0-9]/g, "");
+            const normLabel = an.label.toUpperCase().replace(/[^A-Z0-9]/g, "");
+            const tagMatch = an.label.match(
+              /([A-Z0-9]+-[0-9]+|[A-Z]+[0-9]+)$/i,
+            );
+            const normTag = tagMatch
+              ? tagMatch[0].toUpperCase().replace(/[^A-Z0-9]/g, "")
+              : "";
+
+            return (
+              normDocAsset === normId ||
+              normDocAsset === normLabel ||
+              (normTag !== "" && normDocAsset === normTag)
+            );
+          });
+        }
+
         const spread = (index - (docData?.length ?? 0) / 2) * 80;
         let x = 150 + (index % 4) * 100;
         let y = 80 + Math.floor(index / 4) * 90;
@@ -188,10 +211,14 @@ function Graph() {
         gNodes.push({
           id: docId,
           label: d.name,
-          type: d.category === "SOPs" ? "sop" : "doc",
+          type:
+            d.category === "SOPs" ||
+            d.category?.includes("Standard Operating Procedures")
+              ? "sop"
+              : "doc",
           x,
           y,
-          details: `Category: ${d.category} | Version: ${d.version}`,
+          details: `Category: ${d.category ?? "General"} | Asset: ${d.asset ?? "—"} | Version: ${d.version ?? "1.0"}`,
         });
       });
 
@@ -437,6 +464,10 @@ function Graph() {
                 const a = nodes.find((n) => n.id === e.a)!;
                 const b = nodes.find((n) => n.id === e.b)!;
                 if (!a || !b) return null;
+                const activeId = selected?.id || hoveredId;
+                const isHighlighted =
+                  !!activeId && (e.a === activeId || e.b === activeId);
+
                 return (
                   <line
                     key={i}
@@ -444,15 +475,32 @@ function Graph() {
                     y1={a.y}
                     x2={b.x}
                     y2={b.y}
-                    stroke="rgba(0,194,255,0.35)"
-                    strokeWidth={1.5}
+                    stroke={
+                      isHighlighted ? "#00ffcc" : "rgba(0,194,255,0.35)"
+                    }
+                    strokeWidth={isHighlighted ? 2.5 : 1.5}
+                    opacity={activeId ? (isHighlighted ? 1 : 0.2) : 0.8}
                   />
                 );
               })}
               {visibleNodes.map((n) => {
                 const isSelected = selected?.id === n.id;
                 const isHovered = hoveredId === n.id;
-                const r = isSelected || isHovered ? 11 : 7;
+                const activeId = selected?.id || hoveredId;
+                const isConnected =
+                  !!activeId &&
+                  edges.some(
+                    (e) =>
+                      (e.a === activeId && e.b === n.id) ||
+                      (e.b === activeId && e.a === n.id),
+                  );
+                const r = isSelected || isHovered ? 11 : isConnected ? 9 : 7;
+                const nodeOpacity = activeId
+                  ? isSelected || isHovered || isConnected
+                    ? 1
+                    : 0.35
+                  : 1;
+
                 return (
                   <g
                     key={n.id}
@@ -463,9 +511,13 @@ function Graph() {
                     onMouseEnter={() => setHoveredId(n.id)}
                     onMouseLeave={() => setHoveredId(null)}
                     className="cursor-pointer"
+                    style={{
+                      opacity: nodeOpacity,
+                      transition: "opacity 0.15s",
+                    }}
                   >
                     {/* Outer glow ring on hover — rendered in SVG, no CSS scaling */}
-                    {isHovered && (
+                    {(isHovered || (isSelected && !hoveredId)) && (
                       <circle
                         cx={n.x}
                         cy={n.y}
@@ -482,11 +534,11 @@ function Graph() {
                       stroke={
                         isSelected
                           ? "#fff"
-                          : isHovered
-                            ? "rgba(255,255,255,0.6)"
+                          : isHovered || isConnected
+                            ? "rgba(255,255,255,0.8)"
                             : "none"
                       }
-                      strokeWidth={isSelected ? 2.5 : 1.5}
+                      strokeWidth={isSelected ? 2.5 : isConnected ? 2 : 1.5}
                     />
                     <text
                       x={n.x}

@@ -403,6 +403,23 @@ function Page() {
         );
       }
 
+      // Auto-create a linked reminder if a due_date is specified
+      if (woForm.due_date && newWo) {
+        const reminderTargetUser = woForm.assignee_id || user?.id;
+        if (reminderTargetUser) {
+          const { error: remErr } = await supabase.from("reminders").insert({
+            user_id: reminderTargetUser,
+            work_order_id: newWo.id,
+            description: `Work Order Due: ${woForm.title}`,
+            due_at: new Date(woForm.due_date).toISOString(),
+            is_notified: false,
+          });
+          if (remErr) {
+            console.error("Failed to auto-create linked reminder:", remErr);
+          }
+        }
+      }
+
       toast.success("Work Order scheduled successfully");
       setShowWoModal(false);
       setWoForm({
@@ -431,6 +448,12 @@ function Page() {
         .update({ status: "Completed — Pending Verification" })
         .eq("id", wo.id);
       if (error) throw error;
+
+      // Resolve/close linked reminder for this work order
+      await supabase
+        .from("reminders")
+        .update({ is_notified: true })
+        .eq("work_order_id", wo.id);
 
       // Fetch all plant managers & safety officers to notify
       const [{ data: managers }, { data: safetyOfficers }] = await Promise.all([
@@ -477,6 +500,12 @@ function Page() {
         })
         .eq("id", wo.id);
       if (error) throw error;
+
+      // Resolve/close linked reminder for this work order
+      await supabase
+        .from("reminders")
+        .update({ is_notified: true })
+        .eq("work_order_id", wo.id);
 
       if (wo.assignee_id) {
         await sendWoNotification(
@@ -1710,10 +1739,17 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                                 : ""
                             }`}
                           >
-                            <span>{eng.full_name}</span>
-                            <span className="text-[10px] opacity-60 font-normal">
-                              {eng.email}
-                            </span>
+                            <div className="flex flex-col text-left">
+                              <div className="flex items-center gap-1.5">
+                                <span>{eng.full_name}</span>
+                                <span className="text-[9px] px-1 py-0.2 bg-accent/10 text-accent rounded font-medium">
+                                  Maintenance Engineer
+                                </span>
+                              </div>
+                              <span className="text-[10px] opacity-60 font-normal">
+                                {eng.email}
+                              </span>
+                            </div>
                           </button>
                         ))}
                       {engineers.filter(

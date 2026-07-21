@@ -943,81 +943,157 @@ function CalendarModal({
           </div>
         </div>
 
-        {/* Add reminder form — appears when a day is selected */}
-        {selectedDay && (
-          <div className="mt-4 rounded-xl border border-border bg-muted/30 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold">
-                Add reminder for{" "}
-                {selectedDay.toLocaleDateString("en", {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                })}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelectedDay(null)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="space-y-2 text-xs">
-              <div>
-                <label className="block text-muted-foreground mb-1">
-                  Description
-                </label>
-                <input
-                  placeholder="e.g. Check pressure relief valves"
-                  value={reminderForm.description}
-                  onChange={(e) =>
-                    setReminderForm({
-                      ...reminderForm,
-                      description: e.target.value,
-                    })
-                  }
-                  className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
-                />
+        {/* Add reminder & schedule view — appears when a day is selected */}
+        {selectedDay && (() => {
+          const selDayNum = selectedDay.getDate();
+          const selMonthNum = selectedDay.getMonth();
+          const selYearNum = selectedDay.getFullYear();
+
+          const dayOrders = activeWorkOrders.filter((w) => {
+            if (!w.due_date) return false;
+            const d = new Date(w.due_date);
+            return (
+              d.getFullYear() === selYearNum &&
+              d.getMonth() === selMonthNum &&
+              d.getDate() === selDayNum
+            );
+          });
+
+          const dayReminders = reminders.filter((r) => {
+            const d = new Date(r.due_at);
+            return (
+              d.getFullYear() === selYearNum &&
+              d.getMonth() === selMonthNum &&
+              d.getDate() === selDayNum
+            );
+          });
+
+          const hasItems = dayOrders.length > 0 || dayReminders.length > 0;
+
+          return (
+            <div className="mt-4 rounded-xl border border-border bg-muted/30 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">
+                  Schedule for{" "}
+                  {selectedDay.toLocaleDateString("en", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDay(null)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
-              <div>
-                <label className="block text-muted-foreground mb-1">
-                  Due date & time
-                </label>
-                <input
-                  type="datetime-local"
-                  value={reminderForm.due_at}
-                  onChange={(e) =>
-                    setReminderForm({ ...reminderForm, due_at: e.target.value })
-                  }
-                  className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent text-foreground"
-                />
+
+              {/* Items List */}
+              {!hasItems ? (
+                <div className="rounded-lg border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
+                  No work orders or reminders scheduled for this date.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                  {dayOrders.map((wo) => (
+                    <div
+                      key={wo.id}
+                      className="rounded-lg border border-accent/20 bg-accent/5 p-2 text-xs flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-foreground truncate">
+                          {wo.title}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground truncate">
+                          Assigned: {wo.assigned_to || "Unassigned"} · Status: {wo.status}
+                        </div>
+                      </div>
+                      <span className="shrink-0 rounded bg-accent/15 px-2 py-0.5 text-[10px] font-bold text-accent uppercase">
+                        {wo.priority}
+                      </span>
+                    </div>
+                  ))}
+                  {dayReminders.map((rem) => (
+                    <div
+                      key={rem.id}
+                      className="rounded-lg border border-orange-500/20 bg-orange-500/5 p-2 text-xs flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-foreground truncate">
+                          {rem.description}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          Due at: {new Date(rem.due_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {rem.is_notified ? " · [Resolved]" : ""}
+                        </div>
+                      </div>
+                      <span className="shrink-0 rounded bg-orange-400/20 px-2 py-0.5 text-[10px] font-bold text-orange-400">
+                        Reminder
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add custom reminder form */}
+              <div className="pt-2 border-t border-border/60 space-y-2">
+                <span className="text-xs font-semibold text-foreground block">
+                  Add custom reminder for this date
+                </span>
+                <div className="space-y-2 text-xs">
+                  <div>
+                    <input
+                      placeholder="e.g. Check pressure relief valves"
+                      value={reminderForm.description}
+                      onChange={(e) =>
+                        setReminderForm({
+                          ...reminderForm,
+                          description: e.target.value,
+                        })
+                      }
+                      className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div>
+                    <input
+                      type="datetime-local"
+                      value={reminderForm.due_at}
+                      onChange={(e) =>
+                        setReminderForm({ ...reminderForm, due_at: e.target.value })
+                      }
+                      className="w-full h-8 rounded-lg bg-background border border-border px-2 outline-none focus:border-accent text-foreground"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDay(null)}
+                    className="flex-1 h-8 rounded-lg border border-border text-xs font-medium hover:bg-muted transition"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      savingReminder ||
+                      !reminderForm.description.trim() ||
+                      !reminderForm.due_at
+                    }
+                    onClick={onSaveReminder}
+                    className="flex-1 h-8 rounded-lg bg-accent text-accent-foreground text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-50 hover:opacity-90 transition"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {savingReminder ? "Saving…" : "Save Reminder"}
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setSelectedDay(null)}
-                className="flex-1 h-8 rounded-lg border border-border text-xs font-medium hover:bg-muted transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={
-                  savingReminder ||
-                  !reminderForm.description.trim() ||
-                  !reminderForm.due_at
-                }
-                onClick={onSaveReminder}
-                className="flex-1 h-8 rounded-lg bg-accent text-accent-foreground text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-50 hover:opacity-90 transition"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                {savingReminder ? "Saving…" : "Save Reminder"}
-              </button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );
