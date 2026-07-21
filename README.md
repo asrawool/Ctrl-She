@@ -13,16 +13,6 @@
 
 ---
 
-## Quick Links
-
-| Resource | Link |
-|----------|------|
-| 🌐 Live Website | https://ctrl-she.vercel.app |
-| 🎥 Demo Video | Coming Soon |
-| 📂 GitHub Repository | https://github.com/yourusername/Ctrl-She |
-| 📊 Presentation | Coming Soon |
-
----
 
 # 📖 Overview
 
