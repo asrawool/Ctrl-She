@@ -77,7 +77,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         { charSet: "utf-8" },
         { name: "viewport", content: "width=device-width, initial-scale=1" },
         {
-          title: "IntelliPlant AI — Industrial Knowledge Intelligence Platform",
+          title: "SynapseAi — Industrial Knowledge Intelligence Platform",
         },
         {
           name: "description",
@@ -86,7 +86,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         },
         {
           property: "og:title",
-          content: "IntelliPlant AI — Industrial Knowledge Intelligence",
+          content: "SynapseAi — Industrial Knowledge Intelligence",
         },
         {
           property: "og:description",

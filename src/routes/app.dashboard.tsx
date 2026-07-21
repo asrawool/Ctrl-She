@@ -45,7 +45,7 @@ import {
 } from "@/types/operational";
 
 export const Route = createFileRoute("/app/dashboard")({
-  head: () => ({ meta: [{ title: "Dashboard — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Dashboard — SynapseAi" }] }),
   component: Dashboard,
 });
 

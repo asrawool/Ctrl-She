@@ -37,7 +37,7 @@ const documentSearchSchema = z.object({
 
 export const Route = createFileRoute("/app/documents")({
   validateSearch: (search) => documentSearchSchema.parse(search),
-  head: () => ({ meta: [{ title: "Documents — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Documents — SynapseAi" }] }),
   component: Documents,
 });
 
@@ -455,10 +455,10 @@ function Documents() {
     }
 
     for (const file of filesToUpload) {
-      // 50 MB limit check for Supabase Storage Free Tier
+      // Keep uploads within the application's supported file-size limit.
       if (file.size > 50 * 1024 * 1024) {
         toast.error(
-          `File "${file.name}" exceeds the 50MB maximum upload limit for the free tier.`,
+          `File "${file.name}" exceeds the 50MB maximum upload limit.`,
         );
         continue;
       }
@@ -714,8 +714,7 @@ function Documents() {
           <span className="text-accent underline">browse</span>
         </p>
         <p className="text-xs text-muted-foreground mt-1">
-          Any file type · OCR/extraction attempted where possible · up to 50MB
-          (Free Tier Limit)
+          Any supported file type · up to 50MB
         </p>
 
         {uploads.length > 0 && (
@@ -739,8 +738,8 @@ function Documents() {
       </div>
 
       {/* Toolbar */}
-      <div className="mt-6 flex items-center gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-[240px]">
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+        <div className="relative w-full max-w-xl">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
             value={q}

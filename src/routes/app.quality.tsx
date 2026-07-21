@@ -31,10 +31,13 @@ import {
 import { ComplianceFramework, Inspection, NCR } from "@/types/operational";
 import { useAuth } from "@/store/auth";
 import { hasPermission, getActionRequiredRolesLabel } from "@/services/rbac";
-import { isInspectionOverdue, checkAndMarkOverdue } from "@/services/inspections";
+import {
+  isInspectionOverdue,
+  checkAndMarkOverdue,
+} from "@/services/inspections";
 
 export const Route = createFileRoute("/app/quality")({
-  head: () => ({ meta: [{ title: "Quality & Compliance — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Quality & Compliance — SynapseAi" }] }),
   component: Page,
 });
 
@@ -232,7 +235,9 @@ function Page() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // Searchable assignee picker states matching maintenance page pattern
-  const [engineers, setEngineers] = useState<{ user_id: string; full_name: string; email: string }[]>([]);
+  const [engineers, setEngineers] = useState<
+    { user_id: string; full_name: string; email: string }[]
+  >([]);
   const [assigneeSearch, setAssigneeSearch] = useState("");
 
   // Modal states
@@ -244,7 +249,8 @@ function Page() {
 
   // Complete inspection modal states (item 3)
   const [showCompleteModal, setShowCompleteModal] = useState(false);
-  const [completingInspection, setCompletingInspection] = useState<Inspection | null>(null);
+  const [completingInspection, setCompletingInspection] =
+    useState<Inspection | null>(null);
   const [completeForm, setCompleteForm] = useState({
     result: "Pass",
     findings: "",
@@ -252,7 +258,8 @@ function Page() {
   });
 
   // NCR handoff banner/alert state (item 4)
-  const [justCompletedInspection, setJustCompletedInspection] = useState<Inspection | null>(null);
+  const [justCompletedInspection, setJustCompletedInspection] =
+    useState<Inspection | null>(null);
 
   // Form states
   const [ncrForm, setNcrForm] = useState({
@@ -322,7 +329,7 @@ function Page() {
 
       // Filter profiles by maintenance_engineer role
       const engProfiles = (profData || []).filter((p) =>
-        (roleData || []).some((r) => r.user_id === p.user_id)
+        (roleData || []).some((r) => r.user_id === p.user_id),
       ) as { user_id: string; full_name: string; email: string }[];
       setEngineers(engProfiles);
 
@@ -331,8 +338,8 @@ function Page() {
         checkAndMarkOverdue(insData, (overdueIds) => {
           setInspections((prev) =>
             prev.map((i) =>
-              overdueIds.includes(i.id) ? { ...i, status: "Overdue" } : i
-            )
+              overdueIds.includes(i.id) ? { ...i, status: "Overdue" } : i,
+            ),
           );
         });
       }
@@ -343,7 +350,6 @@ function Page() {
       setLoading(false);
     }
   };
-
 
   // ── recalc framework score ──
   const recalcFrameworkScore = async (
@@ -486,7 +492,9 @@ function Page() {
         const scheduledStr = new Date(
           inspectForm.scheduled_date,
         ).toLocaleString();
-        const scopeText = inspectForm.scope ? ` Scope/Instructions: "${inspectForm.scope}".` : "";
+        const scopeText = inspectForm.scope
+          ? ` Scope/Instructions: "${inspectForm.scope}".`
+          : "";
         await Promise.all(
           inspectForm.assignee_ids.map((assigneeId) =>
             insertNotification(
@@ -548,7 +556,9 @@ function Page() {
         .eq("id", completingInspection.id);
       if (insError) throw insError;
 
-      const newScore = await recalcFrameworkScore(completingInspection.framework);
+      const newScore = await recalcFrameworkScore(
+        completingInspection.framework,
+      );
 
       // Fetch all safety officers to notify
       const { data: safetyOfficers } = await supabase
@@ -557,12 +567,14 @@ function Page() {
         .eq("role", "safety_officer");
 
       const notifyIds = new Set<string>();
-      if (completingInspection.created_by) notifyIds.add(completingInspection.created_by);
+      if (completingInspection.created_by)
+        notifyIds.add(completingInspection.created_by);
       (safetyOfficers || []).forEach((s) => notifyIds.add(s.user_id));
 
-      const findingsExcerpt = completeForm.findings.length > 60
-        ? completeForm.findings.slice(0, 57) + "..."
-        : completeForm.findings;
+      const findingsExcerpt =
+        completeForm.findings.length > 60
+          ? completeForm.findings.slice(0, 57) + "..."
+          : completeForm.findings;
 
       let delayExcerpt = "";
       if (completedLate && completeForm.delayReason) {
@@ -574,8 +586,14 @@ function Page() {
 
       await Promise.all(
         Array.from(notifyIds).map((targetId) =>
-          insertNotification(targetId, notifTitle, notifMessage, "info", "medium")
-        )
+          insertNotification(
+            targetId,
+            notifTitle,
+            notifMessage,
+            "info",
+            "medium",
+          ),
+        ),
       );
 
       toast.success(
@@ -583,7 +601,10 @@ function Page() {
       );
 
       // Show NCR handoff alert if result was Fail or Needs Follow-up
-      if (completeForm.result === "Fail" || completeForm.result === "Needs Follow-up") {
+      if (
+        completeForm.result === "Fail" ||
+        completeForm.result === "Needs Follow-up"
+      ) {
         setJustCompletedInspection({
           ...completingInspection,
           result: completeForm.result,
@@ -604,10 +625,10 @@ function Page() {
 
   const handleInitiateNcrHandoff = (ins: Inspection) => {
     const severity = ins.result === "Fail" ? "High" : "Medium";
-    
+
     // Check if the inspection framework matches any of the frameworks list
     const match = frameworks.find(
-      (f) => f.name.toLowerCase() === ins.framework.toLowerCase()
+      (f) => f.name.toLowerCase() === ins.framework.toLowerCase(),
     );
     const frameworkRef = match ? match.name : "";
 
@@ -709,7 +730,7 @@ function Page() {
     return inspections.filter(
       (i) =>
         i.created_by === currentUserId ||
-        (i.assignee_ids && i.assignee_ids.includes(currentUserId))
+        (i.assignee_ids && i.assignee_ids.includes(currentUserId)),
     );
   }, [inspections, currentUserId]);
 
@@ -825,20 +846,27 @@ function Page() {
       />
 
       {/* NCR handoff banner (item 4) */}
-      {justCompletedInspection && (justCompletedInspection.result === "Fail" || justCompletedInspection.result === "Needs Follow-up") && (
-        <div className="mb-4 p-4 rounded-xl border border-orange-500/20 bg-orange-500/5 flex items-center justify-between gap-4 text-xs">
-          <div>
-            <span className="font-semibold text-orange-500">Rework required:</span> The inspection "{justCompletedInspection.name}" completed with result <b>{justCompletedInspection.result}</b>. You should log a Non-Conformance Report.
+      {justCompletedInspection &&
+        (justCompletedInspection.result === "Fail" ||
+          justCompletedInspection.result === "Needs Follow-up") && (
+          <div className="mb-4 p-4 rounded-xl border border-orange-500/20 bg-orange-500/5 flex items-center justify-between gap-4 text-xs">
+            <div>
+              <span className="font-semibold text-orange-500">
+                Rework required:
+              </span>{" "}
+              The inspection "{justCompletedInspection.name}" completed with
+              result <b>{justCompletedInspection.result}</b>. You should log a
+              Non-Conformance Report.
+            </div>
+            <Button
+              size="sm"
+              className="btn-hero text-[11px] h-7 px-3 shrink-0"
+              onClick={() => handleInitiateNcrHandoff(justCompletedInspection)}
+            >
+              Create NCR from this inspection
+            </Button>
           </div>
-          <Button
-            size="sm"
-            className="btn-hero text-[11px] h-7 px-3 shrink-0"
-            onClick={() => handleInitiateNcrHandoff(justCompletedInspection)}
-          >
-            Create NCR from this inspection
-          </Button>
-        </div>
-      )}
+        )}
 
       {/* Quality KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -971,16 +999,22 @@ function Page() {
                       {it.status}
                     </span>
                     {(() => {
-                      const isAssignee = currentUserId && it.assignee_ids && it.assignee_ids.includes(currentUserId);
-                      return (it.status === "Pending" || it.status === "Overdue") && isAssignee && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[10px]"
-                          onClick={() => handleCompleteInspection(it)}
-                        >
-                          Mark Completed
-                        </Button>
+                      const isAssignee =
+                        currentUserId &&
+                        it.assignee_ids &&
+                        it.assignee_ids.includes(currentUserId);
+                      return (
+                        (it.status === "Pending" || it.status === "Overdue") &&
+                        isAssignee && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[10px]"
+                            onClick={() => handleCompleteInspection(it)}
+                          >
+                            Mark Completed
+                          </Button>
+                        )
                       );
                     })()}
                   </div>
@@ -1119,7 +1153,9 @@ function Page() {
                           <span>· Assigned: {it.assigned_to}</span>
                         )}
                         {it.completed_late && it.delay_reason && (
-                          <span className="text-amber-500 font-medium">· Delay Reason: "{it.delay_reason}"</span>
+                          <span className="text-amber-500 font-medium">
+                            · Delay Reason: "{it.delay_reason}"
+                          </span>
                         )}
                       </div>
                     </div>
@@ -1129,21 +1165,27 @@ function Page() {
                       </span>
                       {isCompleted && (
                         <>
-                          <span className={`rounded-full text-[9px] font-bold px-2 py-0.5 border ${
-                            it.completed_late
-                              ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
-                              : "bg-emerald/10 text-emerald border-emerald/20"
-                          }`}>
-                            {it.completed_late ? "Completed — Late" : "Completed — On Time"}
+                          <span
+                            className={`rounded-full text-[9px] font-bold px-2 py-0.5 border ${
+                              it.completed_late
+                                ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                                : "bg-emerald/10 text-emerald border-emerald/20"
+                            }`}
+                          >
+                            {it.completed_late
+                              ? "Completed — Late"
+                              : "Completed — On Time"}
                           </span>
                           {it.result && (
-                            <span className={`rounded-full text-[9px] font-bold px-2 py-0.5 border ${
-                              it.result === "Pass"
-                                ? "bg-emerald/10 text-emerald border-emerald/20"
-                                : it.result === "Fail"
-                                  ? "bg-destructive/10 text-destructive border-destructive/20"
-                                  : "bg-amber-500/10 text-amber-500 border-amber-500/20"
-                            }`}>
+                            <span
+                              className={`rounded-full text-[9px] font-bold px-2 py-0.5 border ${
+                                it.result === "Pass"
+                                  ? "bg-emerald/10 text-emerald border-emerald/20"
+                                  : it.result === "Fail"
+                                    ? "bg-destructive/10 text-destructive border-destructive/20"
+                                    : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                              }`}
+                            >
                               {it.result}
                             </span>
                           )}
@@ -1154,27 +1196,35 @@ function Page() {
                           Overdue
                         </span>
                       )}
-                      {isCompleted && (it.result === "Fail" || it.result === "Needs Follow-up") && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[10px] border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
-                          onClick={() => handleInitiateNcrHandoff(it)}
-                        >
-                          Create NCR
-                        </Button>
-                      )}
-                      {(() => {
-                        const isAssignee = currentUserId && it.assignee_ids && it.assignee_ids.includes(currentUserId);
-                        return (isPending || isOverdue) && isAssignee && (
+                      {isCompleted &&
+                        (it.result === "Fail" ||
+                          it.result === "Needs Follow-up") && (
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-7 px-2 text-[10px]"
-                            onClick={() => handleCompleteInspection(it)}
+                            className="h-7 px-2 text-[10px] border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
+                            onClick={() => handleInitiateNcrHandoff(it)}
                           >
-                            Mark Completed
+                            Create NCR
                           </Button>
+                        )}
+                      {(() => {
+                        const isAssignee =
+                          currentUserId &&
+                          it.assignee_ids &&
+                          it.assignee_ids.includes(currentUserId);
+                        return (
+                          (isPending || isOverdue) &&
+                          isAssignee && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-[10px]"
+                              onClick={() => handleCompleteInspection(it)}
+                            >
+                              Mark Completed
+                            </Button>
+                          )
                         );
                       })()}
                     </div>
@@ -1441,8 +1491,12 @@ function Page() {
                       {engineers
                         .filter(
                           (eng) =>
-                            eng.full_name?.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
-                            eng.email?.toLowerCase().includes(assigneeSearch.toLowerCase())
+                            eng.full_name
+                              ?.toLowerCase()
+                              .includes(assigneeSearch.toLowerCase()) ||
+                            eng.email
+                              ?.toLowerCase()
+                              .includes(assigneeSearch.toLowerCase()),
                         )
                         .map((eng) => (
                           <button
@@ -1456,17 +1510,25 @@ function Page() {
                               setAssigneeSearch(eng.full_name);
                             }}
                             className={`w-full text-left px-2 py-1.5 rounded-md text-xs hover:bg-muted transition flex justify-between items-center ${
-                              inspectForm.assignee_ids.includes(eng.user_id) ? "bg-accent/10 text-accent font-bold" : ""
+                              inspectForm.assignee_ids.includes(eng.user_id)
+                                ? "bg-accent/10 text-accent font-bold"
+                                : ""
                             }`}
                           >
                             <span>{eng.full_name}</span>
-                            <span className="text-[10px] opacity-60 font-normal">{eng.email}</span>
+                            <span className="text-[10px] opacity-60 font-normal">
+                              {eng.email}
+                            </span>
                           </button>
                         ))}
                       {engineers.filter(
                         (eng) =>
-                          eng.full_name?.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
-                          eng.email?.toLowerCase().includes(assigneeSearch.toLowerCase())
+                          eng.full_name
+                            ?.toLowerCase()
+                            .includes(assigneeSearch.toLowerCase()) ||
+                          eng.email
+                            ?.toLowerCase()
+                            .includes(assigneeSearch.toLowerCase()),
                       ).length === 0 && (
                         <div className="text-muted-foreground italic text-center py-2 text-[10px]">
                           No inspectors match search
@@ -1475,25 +1537,30 @@ function Page() {
                     </div>
                   )}
                   {/* Selected assignee display badge if search is empty */}
-                  {!assigneeSearch.trim() && inspectForm.assignee_ids.length > 0 && (
-                    <div className="mt-1 flex items-center gap-1.5 text-xs text-accent bg-accent/10 w-fit px-2 py-0.5 rounded">
-                      <span>
-                        Assigned:{" "}
-                        {profiles.find((p) => p.user_id === inspectForm.assignee_ids[0])?.full_name ||
-                          inspectForm.assignee_ids[0]}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setInspectForm({ ...inspectForm, assignee_ids: [] });
-                          setAssigneeSearch("");
-                        }}
-                        className="hover:text-destructive"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  )}
+                  {!assigneeSearch.trim() &&
+                    inspectForm.assignee_ids.length > 0 && (
+                      <div className="mt-1 flex items-center gap-1.5 text-xs text-accent bg-accent/10 w-fit px-2 py-0.5 rounded">
+                        <span>
+                          Assigned:{" "}
+                          {profiles.find(
+                            (p) => p.user_id === inspectForm.assignee_ids[0],
+                          )?.full_name || inspectForm.assignee_ids[0]}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInspectForm({
+                              ...inspectForm,
+                              assignee_ids: [],
+                            });
+                            setAssigneeSearch("");
+                          }}
+                          className="hover:text-destructive"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
                 </div>
               </div>
             </div>
@@ -1594,17 +1661,29 @@ function Page() {
             </h3>
             <div className="space-y-3 text-xs">
               <div>
-                <span className="block text-muted-foreground font-semibold">Inspection Name</span>
-                <span className="text-foreground">{completingInspection.name}</span>
+                <span className="block text-muted-foreground font-semibold">
+                  Inspection Name
+                </span>
+                <span className="text-foreground">
+                  {completingInspection.name}
+                </span>
               </div>
               <div>
-                <span className="block text-muted-foreground font-semibold">Framework</span>
-                <span className="text-foreground">{completingInspection.framework}</span>
+                <span className="block text-muted-foreground font-semibold">
+                  Framework
+                </span>
+                <span className="text-foreground">
+                  {completingInspection.framework}
+                </span>
               </div>
               {completingInspection.scope && (
                 <div>
-                  <span className="block text-muted-foreground font-semibold">Scope / Instructions</span>
-                  <span className="text-foreground italic">{completingInspection.scope}</span>
+                  <span className="block text-muted-foreground font-semibold">
+                    Scope / Instructions
+                  </span>
+                  <span className="text-foreground italic">
+                    {completingInspection.scope}
+                  </span>
                 </div>
               )}
               <div>
@@ -1613,13 +1692,21 @@ function Page() {
                 </label>
                 <div className="flex gap-4">
                   {["Pass", "Fail", "Needs Follow-up"].map((opt) => (
-                    <label key={opt} className="flex items-center gap-1.5 cursor-pointer">
+                    <label
+                      key={opt}
+                      className="flex items-center gap-1.5 cursor-pointer"
+                    >
                       <input
                         type="radio"
                         name="inspectResult"
                         value={opt}
                         checked={completeForm.result === opt}
-                        onChange={(e) => setCompleteForm({ ...completeForm, result: e.target.value })}
+                        onChange={(e) =>
+                          setCompleteForm({
+                            ...completeForm,
+                            result: e.target.value,
+                          })
+                        }
                         className="accent-accent"
                       />
                       <span>{opt}</span>

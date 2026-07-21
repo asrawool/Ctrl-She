@@ -84,14 +84,14 @@ function AppLayout() {
   }, [path, role, navigate]);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen overflow-x-hidden bg-background">
       <AppSidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed((c) => !c)}
       />
       <div
         style={{ paddingLeft: collapsed ? 76 : 260 }}
-        className="transition-[padding] duration-300"
+        className="min-w-0 transition-[padding] duration-300"
       >
         <AppTopbar />
         <main className="p-4 lg:p-6 xl:p-8 max-w-[1600px] mx-auto">

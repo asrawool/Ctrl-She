@@ -17,20 +17,24 @@ export interface Inspection {
   delay_reason?: string;
 }
 
-export const isInspectionOverdue = (inspection: { status: string; scheduled_date: string }) => {
+export const isInspectionOverdue = (inspection: {
+  status: string;
+  scheduled_date: string;
+}) => {
   return (
     inspection.status === "Overdue" ||
-    (inspection.status === "Pending" && new Date(inspection.scheduled_date) < new Date())
+    (inspection.status === "Pending" &&
+      new Date(inspection.scheduled_date) < new Date())
   );
 };
 
 export const checkAndMarkOverdue = async (
   inspectionList: Inspection[],
-  onStatusUpdated?: (overdueIds: string[]) => void
+  onStatusUpdated?: (overdueIds: string[]) => void,
 ) => {
   const now = new Date();
   const overdueItems = inspectionList.filter(
-    (i) => i.status === "Pending" && new Date(i.scheduled_date) < now
+    (i) => i.status === "Pending" && new Date(i.scheduled_date) < now,
   );
   if (overdueItems.length === 0) return;
 
@@ -40,8 +44,8 @@ export const checkAndMarkOverdue = async (
         supabase
           .from("inspections")
           .update({ status: "Overdue" })
-          .eq("id", item.id)
-      )
+          .eq("id", item.id),
+      ),
     );
 
     if (onStatusUpdated) {
@@ -49,11 +53,11 @@ export const checkAndMarkOverdue = async (
     }
 
     // Send notifications
-    const notifPromises: Promise<any>[] = [];
+    const notifPromises: PromiseLike<unknown>[] = [];
     for (const item of overdueItems) {
       const title = `Inspection overdue: ${item.name}`;
       const msg = `"${item.name}" (${item.framework}) scheduled for ${new Date(
-        item.scheduled_date
+        item.scheduled_date,
       ).toLocaleDateString()} is now overdue. Assignee(s): ${item.assigned_to || "none listed"}.`;
 
       if (item.created_by) {
@@ -67,7 +71,7 @@ export const checkAndMarkOverdue = async (
               category: "quality",
               priority: "high",
             },
-          })
+          }),
         );
       }
       if (item.assignee_ids && item.assignee_ids.length > 0) {
@@ -82,7 +86,7 @@ export const checkAndMarkOverdue = async (
                 category: "quality",
                 priority: "high",
               },
-            })
+            }),
           );
         }
       }

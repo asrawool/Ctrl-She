@@ -45,7 +45,7 @@ export const Route = createFileRoute("/auth/face")({
       reset: search.reset === true || search.reset === "true",
     };
   },
-  head: () => ({ meta: [{ title: "Face ID — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Face ID — SynapseAi" }] }),
   beforeLoad: async ({ search }) => {
     if (typeof window !== "undefined") {
       await ensureAuthHydrated();
@@ -83,6 +83,44 @@ function calculateEAR(eye: EyePoint[]) {
   const h = calculateDistance(eye[0], eye[3]);
   if (h === 0) return 0;
   return (v1 + v2) / (2.0 * h);
+}
+
+function waitForVideoReady(video: HTMLVideoElement, timeoutMs = 5000) {
+  return new Promise<void>((resolve, reject) => {
+    if (
+      video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+      video.videoWidth > 0
+    ) {
+      resolve();
+      return;
+    }
+
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      video.removeEventListener("loadedmetadata", onReady);
+      video.removeEventListener("loadeddata", onReady);
+      video.removeEventListener("playing", onReady);
+    };
+
+    const onReady = () => {
+      if (
+        video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+        video.videoWidth > 0
+      ) {
+        cleanup();
+        resolve();
+      }
+    };
+
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Camera feed did not become ready in time."));
+    }, timeoutMs);
+
+    video.addEventListener("loadedmetadata", onReady);
+    video.addEventListener("loadeddata", onReady);
+    video.addEventListener("playing", onReady);
+  });
 }
 
 function FacePage() {
@@ -167,6 +205,8 @@ function FacePage() {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => undefined);
+        await waitForVideoReady(videoRef.current);
       }
 
       await loadFaceApiModels();
@@ -260,6 +300,7 @@ function FacePage() {
     try {
       const videoEl = videoRef.current;
       if (!faceapi || !videoEl) throw new Error("Initialization error");
+      await waitForVideoReady(videoEl);
 
       const {
         data: { session },

@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 
 export const Route = createFileRoute("/app/profile")({
-  head: () => ({ meta: [{ title: "Profile — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Profile — SynapseAi" }] }),
   component: ProfilePage,
 });
 

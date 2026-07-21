@@ -37,11 +37,15 @@ import {
   computeHealthStatus,
 } from "@/hooks/useMaintenanceData";
 import { Combobox } from "@/components/ui/combobox";
-import { isInspectionOverdue, checkAndMarkOverdue } from "@/services/inspections";
+import {
+  isInspectionOverdue,
+  checkAndMarkOverdue,
+  type Inspection,
+} from "@/services/inspections";
 
 export const Route = createFileRoute("/app/maintenance")({
   head: () => ({
-    meta: [{ title: "Maintenance Intelligence — IntelliPlant AI" }],
+    meta: [{ title: "Maintenance Intelligence — SynapseAi" }],
   }),
   component: Page,
 });
@@ -103,9 +107,13 @@ function Page() {
   const [rejectNote, setRejectNote] = useState("");
 
   // Assigned inspections for maintenance engineers (item 2)
-  const [assignedInspections, setAssignedInspections] = useState<any[]>([]);
-  const [showCompleteInspectModal, setShowCompleteInspectModal] = useState(false);
-  const [completingInspection, setCompletingInspection] = useState<any | null>(null);
+  const [assignedInspections, setAssignedInspections] = useState<Inspection[]>(
+    [],
+  );
+  const [showCompleteInspectModal, setShowCompleteInspectModal] =
+    useState(false);
+  const [completingInspection, setCompletingInspection] =
+    useState<Inspection | null>(null);
   const [completeForm, setCompleteForm] = useState({
     result: "Pass",
     findings: "",
@@ -217,8 +225,8 @@ function Page() {
         checkAndMarkOverdue(insData, (overdueIds) => {
           setAssignedInspections((prev) =>
             prev.map((i) =>
-              overdueIds.includes(i.id) ? { ...i, status: "Overdue" } : i
-            )
+              overdueIds.includes(i.id) ? { ...i, status: "Overdue" } : i,
+            ),
           );
         });
       }
@@ -406,12 +414,15 @@ function Page() {
       if (error) throw error;
 
       // Fetch all plant managers & safety officers to notify
-      const [
-        { data: managers },
-        { data: safetyOfficers }
-      ] = await Promise.all([
-        supabase.from("user_roles").select("user_id").eq("role", "plant_manager"),
-        supabase.from("user_roles").select("user_id").eq("role", "safety_officer")
+      const [{ data: managers }, { data: safetyOfficers }] = await Promise.all([
+        supabase
+          .from("user_roles")
+          .select("user_id")
+          .eq("role", "plant_manager"),
+        supabase
+          .from("user_roles")
+          .select("user_id")
+          .eq("role", "safety_officer"),
       ]);
 
       const notifyIds = new Set<string>();
@@ -497,7 +508,7 @@ function Page() {
     }
   };
 
-  const handleCompleteInspection = (inspection: any) => {
+  const handleCompleteInspection = (inspection: Inspection) => {
     setCompletingInspection(inspection);
     setShowCompleteInspectModal(true);
     setCompleteForm({ result: "Pass", findings: "", delayReason: "" });
@@ -535,29 +546,36 @@ function Page() {
           .from("inspections")
           .select("status")
           .eq("framework", completingInspection.framework);
-        
+
         if (!fError && frameworkInspections) {
           const { data: frameworkNcrs } = await supabase
             .from("ncrs")
             .select("status")
             .eq("framework_ref", completingInspection.framework);
-            
+
           const totalInspections = frameworkInspections.length;
-          const completedInspections = frameworkInspections.filter((i) => i.status === "Completed").length;
+          const completedInspections = frameworkInspections.filter(
+            (i) => i.status === "Completed",
+          ).length;
           const totalNcrs = frameworkNcrs?.length || 0;
-          const resolvedNcrs = frameworkNcrs?.filter((n) => n.status === "Resolved").length || 0;
-          
+          const resolvedNcrs =
+            frameworkNcrs?.filter((n) => n.status === "Resolved").length || 0;
+
           const total = totalInspections + totalNcrs;
           const successes = completedInspections + resolvedNcrs;
-          const newScore = total > 0 ? Math.round((successes / total) * 100) : 100;
-          
+          const newScore =
+            total > 0 ? Math.round((successes / total) * 100) : 100;
+
           await supabase
             .from("compliance_frameworks")
             .update({ current_score: newScore })
             .eq("name", completingInspection.framework);
         }
       } catch (err) {
-        console.warn("Skipping framework score update due to permissions/RLS:", err);
+        console.warn(
+          "Skipping framework score update due to permissions/RLS:",
+          err,
+        );
       }
 
       // Fetch all safety officers to notify
@@ -567,12 +585,14 @@ function Page() {
         .eq("role", "safety_officer");
 
       const notifyIds = new Set<string>();
-      if (completingInspection.created_by) notifyIds.add(completingInspection.created_by);
+      if (completingInspection.created_by)
+        notifyIds.add(completingInspection.created_by);
       (safetyOfficers || []).forEach((s) => notifyIds.add(s.user_id));
 
-      const findingsExcerpt = completeForm.findings.length > 60
-        ? completeForm.findings.slice(0, 57) + "..."
-        : completeForm.findings;
+      const findingsExcerpt =
+        completeForm.findings.length > 60
+          ? completeForm.findings.slice(0, 57) + "..."
+          : completeForm.findings;
 
       let delayExcerpt = "";
       if (completedLate && completeForm.delayReason) {
@@ -584,8 +604,8 @@ function Page() {
 
       await Promise.all(
         Array.from(notifyIds).map((targetId) =>
-          sendWoNotification(targetId, notifTitle, notifMessage, "medium")
-        )
+          sendWoNotification(targetId, notifTitle, notifMessage, "medium"),
+        ),
       );
 
       toast.success("Inspection marked as Completed successfully.");
@@ -685,7 +705,7 @@ function Page() {
 
       if (error) throw error;
 
-      // Notify reliability_engineer and maintenance_engineer roles
+      // Notify reliability_engineer, maintenance_engineer, and plant_manager roles
       const rcaAsset = assets.find((a) => a.id === rcaForm.asset_id);
       const rcaAssetName = rcaAsset ? rcaAsset.name : "Asset";
       await Promise.all([
@@ -702,6 +722,13 @@ function Page() {
           `A new Root Cause Analysis (RCA) report has been logged for incident ${rcaForm.incident_ref} on asset ${rcaAssetName}.`,
           "medium",
           "maintenance_engineer",
+        ),
+        sendWoNotification(
+          null,
+          `RCA Report Logged: ${rcaForm.incident_ref}`,
+          `A new Root Cause Analysis (RCA) report has been logged for incident ${rcaForm.incident_ref} on asset ${rcaAssetName}.`,
+          "medium",
+          "plant_manager",
         ),
       ]);
 
@@ -1043,216 +1070,224 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
         <div className="space-y-4">
           {/* Maintenance Timeline */}
           <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <h3 className="font-display font-semibold">Maintenance Timeline</h3>
-            <div className="flex gap-1 text-xs">
-              {(["active", "assigned", "history"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setActiveWoTab(tab)}
-                  className={`px-3 py-1 rounded-full font-medium transition ${
-                    activeWoTab === tab
-                      ? "bg-accent text-accent-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/70"
-                  }`}
-                >
-                  {tab === "active"
-                    ? "All Active"
-                    : tab === "assigned"
-                      ? "Assigned to Me"
-                      : "History"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Rework / Reject Reason Overlay */}
-          {rejectWoId && (
-            <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 space-y-2 text-xs">
-              <div className="font-semibold text-destructive">
-                Enter Rework / Rejection Reason
-              </div>
-              <textarea
-                placeholder="Describe what needs to be fixed..."
-                value={rejectNote}
-                onChange={(e) => setRejectNote(e.target.value)}
-                className="w-full h-12 rounded bg-background border border-border p-1.5 outline-none text-foreground"
-              />
-              <div className="flex gap-2 justify-end">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setRejectWoId(null);
-                    setRejectNote("");
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => handleReject(rejectWoId, rejectNote)}
-                >
-                  Send Back for Rework
-                </Button>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className="font-display font-semibold">
+                Maintenance Timeline
+              </h3>
+              <div className="flex gap-1 text-xs">
+                {(["active", "assigned", "history"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setActiveWoTab(tab)}
+                    className={`px-3 py-1 rounded-full font-medium transition ${
+                      activeWoTab === tab
+                        ? "bg-accent text-accent-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/70"
+                    }`}
+                  >
+                    {tab === "active"
+                      ? "All Active"
+                      : tab === "assigned"
+                        ? "Assigned to Me"
+                        : "History"}
+                  </button>
+                ))}
               </div>
             </div>
-          )}
 
-          {(() => {
-            const filteredWos = workOrders.filter((w) => {
-              if (activeWoTab === "active") return w.status !== "Completed";
-              if (activeWoTab === "assigned")
-                return (
-                  w.assignee_id === currentUserId && w.status !== "Completed"
-                );
-              return w.status === "Completed";
-            });
+            {/* Rework / Reject Reason Overlay */}
+            {rejectWoId && (
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 space-y-2 text-xs">
+                <div className="font-semibold text-destructive">
+                  Enter Rework / Rejection Reason
+                </div>
+                <textarea
+                  placeholder="Describe what needs to be fixed..."
+                  value={rejectNote}
+                  onChange={(e) => setRejectNote(e.target.value)}
+                  className="w-full h-12 rounded bg-background border border-border p-1.5 outline-none text-foreground"
+                />
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setRejectWoId(null);
+                      setRejectNote("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => handleReject(rejectWoId, rejectNote)}
+                  >
+                    Send Back for Rework
+                  </Button>
+                </div>
+              </div>
+            )}
 
-            if (filteredWos.length === 0) {
-              return (
-                <p className="text-xs text-muted-foreground italic py-4">
-                  No work orders found in this section.
-                </p>
-              );
-            }
-
-            return (
-              <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-1 before:bottom-1 before:w-0.5 before:bg-border">
-                {filteredWos.map((e, idx) => {
-                  const dayStr = e.due_date
-                    ? new Date(e.due_date).toLocaleDateString(undefined, {
-                        day: "numeric",
-                        month: "short",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })
-                    : "—";
-                  const tone =
-                    e.priority === "Critical" || e.priority === "High"
-                      ? "warning"
-                      : "emerald";
-
-                  const isAssignee =
-                    currentUserId && e.assignee_id === currentUserId;
-                  const isAssigner =
-                    currentUserId &&
-                    (e.created_by === currentUserId ||
-                      role === "plant_manager" ||
-                      role === "safety_officer");
-
-                  // Badge styles matching inspections page
-                  const badgeStyle =
-                    e.status === "Completed"
-                      ? "bg-emerald/10 text-emerald border-emerald/20"
-                      : e.status === "Completed — Pending Verification"
-                        ? "bg-orange-500/10 text-orange-500 border-orange-500/20"
-                        : "bg-blue-500/10 text-blue-500 border-blue-500/20";
-
+            {(() => {
+              const filteredWos = workOrders.filter((w) => {
+                if (activeWoTab === "active") return w.status !== "Completed";
+                if (activeWoTab === "assigned")
                   return (
-                    <div
-                      key={e.id || idx}
-                      id={`wo-${e.id}`}
-                      className="relative p-2 rounded-xl border border-transparent hover:border-border hover:bg-muted/10 transition-all duration-300 space-y-1.5"
-                    >
-                      <span
-                        className={`absolute -left-[22px] top-3 grid h-3 w-3 place-items-center rounded-full ${
-                          tone === "warning"
-                            ? "bg-orange-500 animate-pulse"
-                            : "bg-emerald"
-                        }`}
-                      />
+                    w.assignee_id === currentUserId && w.status !== "Completed"
+                  );
+                return w.status === "Completed";
+              });
 
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className="text-[10px] uppercase font-bold text-muted-foreground">
-                          Due: {dayStr}
-                        </div>
-                        <div className="flex gap-1.5 items-center">
-                          {/* Priority badge */}
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${
-                              tone === "warning"
-                                ? "border-orange-500/20 bg-orange-500/10 text-orange-500"
-                                : "border-emerald/20 bg-emerald/10 text-emerald"
-                            }`}
-                          >
-                            {e.priority}
-                          </span>
-                          {/* Status badge */}
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${badgeStyle}`}
-                          >
-                            {e.status}
-                          </span>
-                        </div>
-                      </div>
+              if (filteredWos.length === 0) {
+                return (
+                  <p className="text-xs text-muted-foreground italic py-4">
+                    No work orders found in this section.
+                  </p>
+                );
+              }
 
-                      <div className="text-sm font-medium">
-                        {e.type.toUpperCase()}: {e.title} for{" "}
-                        {assets.find((a) => a.id === e.asset_id)?.asset_code ||
-                          e.asset_id}
-                      </div>
+              return (
+                <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-1 before:bottom-1 before:w-0.5 before:bg-border">
+                  {filteredWos.map((e, idx) => {
+                    const dayStr = e.due_date
+                      ? new Date(e.due_date).toLocaleDateString(undefined, {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "—";
+                    const tone =
+                      e.priority === "Critical" || e.priority === "High"
+                        ? "warning"
+                        : "emerald";
 
-                      {e.notes && (
-                        <p className="text-xs text-muted-foreground italic max-w-md line-clamp-2">
-                          {e.notes}
-                        </p>
-                      )}
+                    const isAssignee =
+                      currentUserId && e.assignee_id === currentUserId;
+                    const isAssigner =
+                      currentUserId &&
+                      (e.created_by === currentUserId ||
+                        role === "plant_manager" ||
+                        role === "safety_officer");
 
-                      <div className="flex items-center justify-between flex-wrap gap-2 mt-1">
-                        {e.assigned_to && (
-                          <div className="text-[10px] text-muted-foreground flex items-center gap-1">
-                            <User className="h-3 w-3" /> {e.assigned_to}
+                    // Badge styles matching inspections page
+                    const badgeStyle =
+                      e.status === "Completed"
+                        ? "bg-emerald/10 text-emerald border-emerald/20"
+                        : e.status === "Completed — Pending Verification"
+                          ? "bg-orange-500/10 text-orange-500 border-orange-500/20"
+                          : "bg-blue-500/10 text-blue-500 border-blue-500/20";
+
+                    return (
+                      <div
+                        key={e.id || idx}
+                        id={`wo-${e.id}`}
+                        className="relative p-2 rounded-xl border border-transparent hover:border-border hover:bg-muted/10 transition-all duration-300 space-y-1.5"
+                      >
+                        <span
+                          className={`absolute -left-[22px] top-3 grid h-3 w-3 place-items-center rounded-full ${
+                            tone === "warning"
+                              ? "bg-orange-500 animate-pulse"
+                              : "bg-emerald"
+                          }`}
+                        />
+
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="text-[10px] uppercase font-bold text-muted-foreground">
+                            Due: {dayStr}
                           </div>
+                          <div className="flex gap-1.5 items-center">
+                            {/* Priority badge */}
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${
+                                tone === "warning"
+                                  ? "border-orange-500/20 bg-orange-500/10 text-orange-500"
+                                  : "border-emerald/20 bg-emerald/10 text-emerald"
+                              }`}
+                            >
+                              {e.priority}
+                            </span>
+                            {/* Status badge */}
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${badgeStyle}`}
+                            >
+                              {e.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-sm font-medium">
+                          {e.type.toUpperCase()}: {e.title} for{" "}
+                          {assets.find((a) => a.id === e.asset_id)
+                            ?.asset_code || e.asset_id}
+                        </div>
+
+                        {e.notes && (
+                          <p className="text-xs text-muted-foreground italic max-w-md line-clamp-2">
+                            {e.notes}
+                          </p>
                         )}
 
-                        {/* Action buttons */}
-                        <div className="flex gap-1.5">
-                          {(e.status === "Pending" ||
-                            e.status === "Scheduled") &&
-                            isAssignee && (
-                              <Button
-                                size="sm"
-                                onClick={() => handleMarkComplete(e)}
-                                className="text-[10px] py-0.5 px-2 bg-accent text-accent-foreground hover:bg-accent/90"
-                              >
-                                Mark Complete
-                              </Button>
-                            )}
-                          {e.status === "Completed — Pending Verification" &&
-                            isAssigner && (
-                              <>
+                        <div className="flex items-center justify-between flex-wrap gap-2 mt-1">
+                          {e.assigned_to && (
+                            <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                              <User className="h-3 w-3" /> {e.assigned_to}
+                            </div>
+                          )}
+
+                          {/* Action buttons */}
+                          <div className="flex gap-1.5">
+                            {(e.status === "Pending" ||
+                              e.status === "Scheduled") &&
+                              isAssignee && (
                                 <Button
                                   size="sm"
-                                  variant="outline"
-                                  onClick={() => setRejectWoId(e.id)}
-                                  className="text-[10px] py-0.5 px-2 text-destructive border-destructive/20 hover:bg-destructive/10"
+                                  onClick={() => handleMarkComplete(e)}
+                                  className="text-[10px] py-0.5 px-2 bg-accent text-accent-foreground hover:bg-accent/90"
                                 >
-                                  Reject
+                                  Mark Complete
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleVerify(e)}
-                                  className="text-[10px] py-0.5 px-2 bg-emerald hover:bg-emerald/90 text-white"
-                                >
-                                  Verify
-                                </Button>
-                              </>
-                            )}
+                              )}
+                            {e.status === "Completed — Pending Verification" &&
+                              isAssigner && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setRejectWoId(e.id)}
+                                    className="text-[10px] py-0.5 px-2 text-destructive border-destructive/20 hover:bg-destructive/10"
+                                  >
+                                    Reject
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleVerify(e)}
+                                    className="text-[10px] py-0.5 px-2 bg-emerald hover:bg-emerald/90 text-white"
+                                  >
+                                    Verify
+                                  </Button>
+                                </>
+                              )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           {/* My Assigned Compliance Inspections — item 2 */}
-          {(role === "maintenance_engineer" || assignedInspections.some((ins) => ins.assignee_ids && ins.assignee_ids.includes(currentUserId))) && (
+          {(role === "maintenance_engineer" ||
+            assignedInspections.some(
+              (ins) =>
+                currentUserId &&
+                ins.assignee_ids &&
+                ins.assignee_ids.includes(currentUserId),
+            )) && (
             <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
               <h3 className="font-display font-semibold flex items-center gap-1.5">
                 <Calendar className="h-4 w-4 text-accent" />
@@ -1263,17 +1298,21 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                   .filter(
                     (ins) =>
                       ins.status !== "Completed" &&
+                      currentUserId &&
                       ins.assignee_ids &&
-                      ins.assignee_ids.includes(currentUserId)
+                      ins.assignee_ids.includes(currentUserId),
                   )
                   .map((ins) => {
                     const dayStr = ins.scheduled_date
-                      ? new Date(ins.scheduled_date).toLocaleDateString(undefined, {
-                          day: "numeric",
-                          month: "short",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
+                      ? new Date(ins.scheduled_date).toLocaleDateString(
+                          undefined,
+                          {
+                            day: "numeric",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          },
+                        )
                       : "—";
                     const isOverdue = isInspectionOverdue(ins);
                     return (
@@ -1283,7 +1322,9 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                       >
                         <div className="flex-1 min-w-0 space-y-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-semibold text-sm truncate">{ins.name}</span>
+                            <span className="font-semibold text-sm truncate">
+                              {ins.name}
+                            </span>
                             {isOverdue && (
                               <span className="rounded-full bg-destructive/10 text-destructive text-[9px] font-bold px-2 py-0.5 border border-destructive/20">
                                 Overdue
@@ -1313,8 +1354,9 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                 {assignedInspections.filter(
                   (ins) =>
                     ins.status !== "Completed" &&
+                    currentUserId &&
                     ins.assignee_ids &&
-                    ins.assignee_ids.includes(currentUserId)
+                    ins.assignee_ids.includes(currentUserId),
                 ).length === 0 && (
                   <p className="text-xs text-muted-foreground italic">
                     No pending compliance inspections assigned to you.
@@ -1992,17 +2034,29 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
             </h3>
             <div className="space-y-3 text-xs">
               <div>
-                <span className="block text-muted-foreground font-semibold">Inspection Name</span>
-                <span className="text-foreground">{completingInspection.name}</span>
+                <span className="block text-muted-foreground font-semibold">
+                  Inspection Name
+                </span>
+                <span className="text-foreground">
+                  {completingInspection.name}
+                </span>
               </div>
               <div>
-                <span className="block text-muted-foreground font-semibold">Framework</span>
-                <span className="text-foreground">{completingInspection.framework}</span>
+                <span className="block text-muted-foreground font-semibold">
+                  Framework
+                </span>
+                <span className="text-foreground">
+                  {completingInspection.framework}
+                </span>
               </div>
               {completingInspection.scope && (
                 <div>
-                  <span className="block text-muted-foreground font-semibold">Scope / Instructions</span>
-                  <span className="text-foreground italic">{completingInspection.scope}</span>
+                  <span className="block text-muted-foreground font-semibold">
+                    Scope / Instructions
+                  </span>
+                  <span className="text-foreground italic">
+                    {completingInspection.scope}
+                  </span>
                 </div>
               )}
               <div>
@@ -2011,13 +2065,21 @@ Corrective Actions: ${insertedRca.corrective_actions}`;
                 </label>
                 <div className="flex gap-4">
                   {["Pass", "Fail", "Needs Follow-up"].map((opt) => (
-                    <label key={opt} className="flex items-center gap-1.5 cursor-pointer">
+                    <label
+                      key={opt}
+                      className="flex items-center gap-1.5 cursor-pointer"
+                    >
                       <input
                         type="radio"
                         name="inspectResult"
                         value={opt}
                         checked={completeForm.result === opt}
-                        onChange={(e) => setCompleteForm({ ...completeForm, result: e.target.value })}
+                        onChange={(e) =>
+                          setCompleteForm({
+                            ...completeForm,
+                            result: e.target.value,
+                          })
+                        }
                         className="accent-accent"
                       />
                       <span>{opt}</span>

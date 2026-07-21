@@ -79,7 +79,7 @@ export function CopilotShowcase() {
               <Bot className="h-4 w-4" />
             </div>
             <div className="flex-1">
-              <div className="text-sm font-semibold">IntelliPlant Copilot</div>
+              <div className="text-sm font-semibold">SynapseAi Copilot</div>
               <div className="text-[11px] text-white/60">
                 Grounded on 12,842 documents · Plant Alpha
               </div>

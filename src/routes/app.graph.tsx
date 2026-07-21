@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/graph")({
-  head: () => ({ meta: [{ title: "Knowledge Graph — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Knowledge Graph — SynapseAi" }] }),
   component: Graph,
 });
 
@@ -136,11 +136,21 @@ function Graph() {
         { data: docData },
         { data: ncrData },
         { data: rcaData },
+        { data: profileData },
+        { data: roleData },
+        { data: workOrderData },
       ] = await Promise.all([
         supabase.from("assets").select("*"),
         supabase.from("documents").select("*"),
         supabase.from("ncrs").select("*"),
         supabase.from("rca_reports").select("*"),
+        supabase
+          .from("user_profiles")
+          .select("user_id, full_name, email, department"),
+        supabase.from("user_roles").select("user_id, role"),
+        supabase
+          .from("work_orders")
+          .select("id, asset_id, created_by, assignee_id"),
       ]);
 
       const gNodes: Node[] = [];
@@ -238,37 +248,56 @@ function Graph() {
       });
 
       // 4. Personnel nodes — placed away from asset cluster
-      const personnel = [
-        {
-          id: "p-sharma",
-          name: "R. Sharma",
-          x: 750,
-          y: 160,
-          details: "Maintenance Lead (Operations)",
-          linkedAssetIdx: 0,
-        },
-        {
-          id: "p-patel",
-          name: "A. Patel",
-          x: 730,
-          y: 420,
-          details: "Quality Compliance Officer",
-          linkedAssetIdx: -1,
-        },
-      ];
-
-      personnel.forEach((p) => {
+      const rolesByUser = new Map(
+        (roleData || []).map((role) => [role.user_id, role.role]),
+      );
+      const personNodeIds = new Map<string, string>();
+      (profileData || []).forEach((profile, index) => {
+        const angle =
+          (index / Math.max(profileData?.length || 1, 1)) * 2 * Math.PI;
+        const personId = `person-${profile.user_id}`;
+        personNodeIds.set(profile.user_id, personId);
         gNodes.push({
-          id: p.id,
-          label: p.name,
+          id: personId,
+          label:
+            profile.full_name ||
+            profile.email ||
+            `User ${profile.user_id.slice(0, 8)}`,
           type: "person",
-          x: p.x,
-          y: p.y,
-          details: p.details,
+          x: 450 + Math.cos(angle) * 320,
+          y: 300 + Math.sin(angle) * 240,
+          details: [rolesByUser.get(profile.user_id), profile.department]
+            .filter(Boolean)
+            .join(" | "),
         });
-        if (p.linkedAssetIdx >= 0 && assetNodesList[p.linkedAssetIdx]) {
-          gEdges.push({ a: assetNodesList[p.linkedAssetIdx].id, b: p.id });
-        }
+      });
+
+      const addPersonEdge = (
+        userId: string | null | undefined,
+        nodeId: string | null | undefined,
+      ) => {
+        const personId = userId ? personNodeIds.get(userId) : undefined;
+        if (personId && nodeId) gEdges.push({ a: personId, b: nodeId });
+      };
+
+      (astData || []).forEach((asset) =>
+        addPersonEdge(asset.updated_by, asset.id),
+      );
+      (docData || []).forEach((document) =>
+        addPersonEdge(
+          document.created_by ?? document.uploaded_by,
+          `doc-${document.id}`,
+        ),
+      );
+      (ncrData || []).forEach((ncr) =>
+        addPersonEdge(ncr.created_by, `ncr-${ncr.id}`),
+      );
+      (rcaData || []).forEach((report) =>
+        addPersonEdge(report.created_by, `rca-${report.id}`),
+      );
+      (workOrderData || []).forEach((workOrder) => {
+        addPersonEdge(workOrder.created_by, workOrder.asset_id);
+        addPersonEdge(workOrder.assignee_id, workOrder.asset_id);
       });
 
       // Run force layout to produce relationship-aware positions
@@ -348,14 +377,14 @@ function Graph() {
           <div className="absolute inset-0 grid-industrial opacity-20" />
 
           {/* Controls */}
-          <div className="absolute top-3 left-3 z-10 flex gap-2">
-            <div className="relative">
+          <div className="absolute left-1/2 top-3 z-10 flex w-[calc(100%-1.5rem)] max-w-sm -translate-x-1/2 gap-2">
+            <div className="relative w-full">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/60" />
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Search nodes"
-                className="h-9 w-56 rounded-lg bg-white/10 pl-8 pr-2 text-xs text-white placeholder:text-white/50 outline-none focus:bg-white/20"
+                className="h-9 w-full rounded-lg bg-white/10 pl-8 pr-2 text-xs text-white placeholder:text-white/50 outline-none focus:bg-white/20"
               />
             </div>
           </div>

@@ -12,7 +12,7 @@ import {
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/lessons")({
-  head: () => ({ meta: [{ title: "Lessons Learned — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Lessons Learned — SynapseAi" }] }),
   component: Page,
 });
 

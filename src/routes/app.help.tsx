@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/app/PageHeader";
 import { HelpCircle, MessageSquare, BookOpen, Video } from "lucide-react";
 
 export const Route = createFileRoute("/app/help")({
-  head: () => ({ meta: [{ title: "Help — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Help — SynapseAi" }] }),
   component: Page,
 });
 
@@ -12,7 +12,7 @@ function Page() {
     <>
       <PageHeader
         title="Help & Support"
-        description="Guides, tutorials and direct support from the IntelliPlant AI team."
+        description="Guides, tutorials and direct support from the SynapseAi team."
       />
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {[

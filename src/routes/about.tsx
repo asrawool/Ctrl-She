@@ -6,13 +6,13 @@ import { Cpu, ShieldCheck, Globe, Zap } from "lucide-react";
 export const Route = createFileRoute("/about")({
   head: () => ({
     meta: [
-      { title: "About — IntelliPlant AI" },
+      { title: "About — SynapseAi" },
       {
         name: "description",
         content:
-          "IntelliPlant AI is the unified asset & operations brain for Fortune 500 manufacturing.",
+          "SynapseAi is the unified asset & operations brain for Fortune 500 manufacturing.",
       },
-      { property: "og:title", content: "About IntelliPlant AI" },
+      { property: "og:title", content: "About SynapseAi" },
       {
         property: "og:description",
         content:
@@ -37,7 +37,7 @@ function About() {
             Industry 4.0
           </h1>
           <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto">
-            IntelliPlant AI unifies decades of scattered engineering knowledge —
+            SynapseAi unifies decades of scattered engineering knowledge —
             manuals, SOPs, drawings, incident logs and audit records — into a
             single AI-powered operational intelligence platform for the world's
             most demanding manufacturing environments.

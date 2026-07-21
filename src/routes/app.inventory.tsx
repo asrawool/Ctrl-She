@@ -36,7 +36,7 @@ import { useAuth } from "@/store/auth";
 import { hasPermission } from "@/services/rbac";
 
 export const Route = createFileRoute("/app/inventory")({
-  head: () => ({ meta: [{ title: "Asset Inventory — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Asset Inventory — SynapseAi" }] }),
   component: Page,
 });
 
@@ -677,8 +677,8 @@ function Page() {
       </div>
 
       {/* Filters */}
-      <div className="mt-6 flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[220px]">
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+        <div className="relative w-full max-w-xl">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
             value={q}

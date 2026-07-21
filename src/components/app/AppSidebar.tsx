@@ -141,7 +141,7 @@ export function AppSidebar({
               className="leading-tight overflow-hidden"
             >
               <div className="font-display text-sm font-bold whitespace-nowrap">
-                IntelliPlant<span className="text-accent">.AI</span>
+                Synapse<span className="text-accent">Ai</span>
               </div>
               <div className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground whitespace-nowrap">
                 Operations Brain

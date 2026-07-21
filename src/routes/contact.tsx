@@ -9,13 +9,12 @@ import { Button } from "@/components/ui/button";
 export const Route = createFileRoute("/contact")({
   head: () => ({
     meta: [
-      { title: "Contact — IntelliPlant AI" },
+      { title: "Contact — SynapseAi" },
       {
         name: "description",
-        content:
-          "Talk to our team about deploying IntelliPlant AI at your plant.",
+        content: "Talk to our team about deploying SynapseAi at your plant.",
       },
-      { property: "og:title", content: "Contact IntelliPlant AI" },
+      { property: "og:title", content: "Contact SynapseAi" },
       {
         property: "og:description",
         content: "Speak with our industrial AI specialists.",

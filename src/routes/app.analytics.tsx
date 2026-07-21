@@ -5,8 +5,6 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { Download, RefreshCw } from "lucide-react";
 import {
-  LineChart,
-  Line,
   BarChart,
   Bar,
   PieChart,
@@ -30,7 +28,7 @@ import {
 } from "@/types/operational";
 
 export const Route = createFileRoute("/app/analytics")({
-  head: () => ({ meta: [{ title: "Analytics — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Analytics — SynapseAi" }] }),
   component: Page,
 });
 
@@ -79,123 +77,61 @@ function Page() {
     fetchData();
   }, []);
 
-  // Compute dynamic KPI values
-  const avgOee = useMemo(() => {
-    if (assets.length === 0) return 92;
+  // These values are derived directly from the operational records available
+  // in the current data model. OEE, uptime, MTBF, and MTTR need production and
+  // downtime event data, so they are intentionally not inferred here.
+  const averageAssetHealth = useMemo(() => {
+    if (assets.length === 0) return null;
     return Math.round(
       assets.reduce((sum, a) => sum + a.health_percentage, 0) / assets.length,
     );
   }, [assets]);
 
-  const uptime = useMemo(() => {
-    if (assets.length === 0) return 98.1;
-    const criticals = assets.filter((a) => a.status === "critical").length;
-    return Number((100 - (criticals / assets.length) * 5).toFixed(1));
-  }, [assets]);
-
-  // Dynamic MTTR calculation from completed work orders
-  const mttrValue = useMemo(() => {
-    const completedWOs = workOrders.filter(
-      (wo) => wo.status?.toLowerCase() === "completed" || wo.completed_at,
-    );
-    if (completedWOs.length === 0) return 2.8; // Baseline fallback value when no completed work orders exist yet
-
-    let totalHours = 0;
-    completedWOs.forEach((wo) => {
-      if (wo.completed_at && wo.due_date) {
-        const diffMs =
-          new Date(wo.completed_at).getTime() - new Date(wo.due_date).getTime();
-        const diffHrs = Math.max(0.5, Math.abs(diffMs) / (1000 * 60 * 60));
-        totalHours += Math.min(24, diffHrs);
-      } else {
-        const typeHours: Record<string, number> = {
-          emergency: 5.0,
-          corrective: 3.0,
-          predictive: 2.0,
-          preventive: 1.0,
-        };
-        totalHours += typeHours[wo.type?.toLowerCase()] || 2.0;
-      }
-    });
-
-    return Number((totalHours / completedWOs.length).toFixed(1));
-  }, [workOrders]);
-
-  // Dynamic MTBF calculation based on total operational hours and total failures
-  const mtbfValue = useMemo(() => {
-    const failures =
+  const activeWorkOrders = useMemo(
+    () =>
       workOrders.filter(
-        (wo) =>
-          wo.type === "emergency" ||
-          wo.type === "corrective" ||
-          wo.status?.toLowerCase() === "completed",
-      ).length + ncrs.length;
-    const totalUptimeHours = assets.length * 720; // 30 days of operating time per asset
-    if (failures === 0) return totalUptimeHours || 612;
-    return Math.round(totalUptimeHours / failures);
-  }, [workOrders, ncrs, assets]);
+        (wo) => wo.status?.toLowerCase() !== "completed" && !wo.completed_at,
+      ).length,
+    [workOrders],
+  );
 
-  // Dynamic Monthly Performance Trend
-  const monthlyTrend = useMemo(() => {
-    const currentOee = avgOee;
-    const currentUptime = uptime;
-    const currentMttr = mttrValue;
-    return [
-      { m: "Jan", oee: 82, uptime: 94, mttr: 4.2 },
-      { m: "Feb", oee: 84, uptime: 95, mttr: 3.9 },
-      { m: "Mar", oee: 81, uptime: 93, mttr: 4.5 },
-      { m: "Apr", oee: 87, uptime: 96, mttr: 3.4 },
-      { m: "May", oee: 89, uptime: 97, mttr: 3.1 },
-      { m: "Jun", oee: 92, uptime: 98, mttr: 2.8 },
-      { m: "Jul", oee: currentOee, uptime: currentUptime, mttr: currentMttr },
-    ];
-  }, [avgOee, uptime, mttrValue]);
+  const openNcrs = useMemo(
+    () =>
+      ncrs.filter(
+        (n) => !["closed", "resolved"].includes(n.status.toLowerCase()),
+      ).length,
+    [ncrs],
+  );
 
-  // Dynamic Department Performance Scores
-  const deptPerformance = useMemo(() => {
-    const completedWOsCount = workOrders.filter(
-      (wo) => wo.status?.toLowerCase() === "completed" || wo.completed_at,
-    ).length;
+  const criticalAssets = useMemo(
+    () =>
+      assets.filter(
+        (a) =>
+          a.health_percentage <= 65 || a.status.toLowerCase() === "critical",
+      ).length,
+    [assets],
+  );
 
-    // Maintenance score based on completed work orders vs total
-    const maintenanceScore =
-      workOrders.length > 0 ? Math.round(70 + completedWOsCount * 5) : 87;
-
-    // Operations score based on average OEE
-    const operationsScore = avgOee;
-
-    // Quality score based on non-resolved NCRs
-    const activeNcrs = ncrs.filter(
-      (n) => n.status !== "Closed" && n.status !== "Resolved",
-    ).length;
-    const qualityScore = Math.max(50, 100 - activeNcrs * 5);
-
-    // HSE score based on expired/soon-to-expire certifications & policies
-    const expiredCertsAndPoliciesCount =
+  const complianceAttention = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return (
       certifications.filter(
-        (c) => c.status === "Expired" || c.status === "Renewal Required",
+        (c) => c.status?.toLowerCase() === "expired" || c.expiry_date < today,
       ).length +
       insurancePolicies.filter(
-        (p) => p.status === "Expired" || p.status === "Pending Renewal",
-      ).length;
-    const hseScore = Math.max(60, 96 - expiredCertsAndPoliciesCount * 4);
+        (p) => p.status.toLowerCase() === "expired" || p.expiry_date < today,
+      ).length
+    );
+  }, [certifications, insurancePolicies]);
 
-    // Engineering score based on average remaining useful life (RUL) days
-    const avgRul =
-      assets.length > 0
-        ? assets.reduce((sum, a) => sum + (a.rul_days || 100), 0) /
-          assets.length
-        : 180;
-    const engineeringScore = Math.min(100, Math.round(70 + avgRul / 10));
-
-    return [
-      { d: "Maintenance", v: Math.min(100, maintenanceScore) },
-      { d: "Operations", v: Math.min(100, operationsScore) },
-      { d: "Quality", v: Math.min(100, qualityScore) },
-      { d: "HSE", v: Math.min(100, hseScore) },
-      { d: "Engineering", v: Math.min(100, engineeringScore) },
-    ];
-  }, [workOrders, ncrs, certifications, insurancePolicies, assets, avgOee]);
+  const workOrderStatus = useMemo(() => {
+    const counts = new Map<string, number>();
+    workOrders.forEach((wo) => {
+      const status = wo.status || "Unspecified";
+      counts.set(status, (counts.get(status) ?? 0) + 1);
+    });
+    return Array.from(counts, ([status, count]) => ({ status, count }));
+  }, [workOrders]);
 
   // Compute maintenance type distribution from active work orders
   const pieData = useMemo(() => {
@@ -228,12 +164,14 @@ function Page() {
   }, [workOrders]);
 
   const handleExportCsv = () => {
-    const cols = ["Month", "OEE Score (%)", "Uptime (%)", "MTTR (Hours)"];
-    exportCsv(
-      "Operational_Analytics_Trend",
-      cols,
-      monthlyTrend.map((m) => [m.m, m.oee, m.uptime, m.mttr]),
-    );
+    const cols = ["Metric", "Value"];
+    exportCsv("Operational_Analytics_Summary", cols, [
+      ["Average asset health (%)", averageAssetHealth ?? "No asset data"],
+      ["Assets requiring attention", criticalAssets],
+      ["Open work orders", activeWorkOrders],
+      ["Open NCRs", openNcrs],
+      ["Expired compliance records", complianceAttention],
+    ]);
   };
 
   if (loading) {
@@ -248,11 +186,11 @@ function Page() {
     <>
       <PageHeader
         title="Analytics"
-        description="Cross-plant KPIs, department comparisons and monthly performance analytics."
+        description="Operational metrics calculated from your live asset, work order, quality and compliance records."
         actions={
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={handleExportCsv}>
-              <Download className="mr-1.5 h-3.5 w-3.5" /> Export Trend CSV
+              <Download className="mr-1.5 h-3.5 w-3.5" /> Export Summary CSV
             </Button>
           </div>
         }
@@ -261,10 +199,14 @@ function Page() {
       {/* Current KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { l: "OEE (Avg Asset Health)", v: `${avgOee}%`, c: "emerald" },
-          { l: "Uptime Forecast", v: `${uptime}%`, c: "emerald" },
-          { l: "MTBF", v: `${mtbfValue}h`, c: "cyan" },
-          { l: "MTTR", v: `${mttrValue}h`, c: "cyan" },
+          {
+            l: "Average Asset Health",
+            v: averageAssetHealth === null ? "—" : `${averageAssetHealth}%`,
+            c: "emerald",
+          },
+          { l: "Assets Requiring Attention", v: criticalAssets, c: "cyan" },
+          { l: "Open Work Orders", v: activeWorkOrders, c: "cyan" },
+          { l: "Open NCRs", v: openNcrs, c: "cyan" },
         ].map((k) => (
           <div
             key={k.l}
@@ -281,44 +223,43 @@ function Page() {
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <Card title="Monthly Performance Trend">
+        <Card title="Work Order Status">
           <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={monthlyTrend}>
+            <BarChart data={workOrderStatus}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="m" fontSize={11} />
+              <XAxis dataKey="status" fontSize={11} />
               <YAxis fontSize={11} />
               <Tooltip />
               <Legend />
-              <Line
-                type="monotone"
-                dataKey="oee"
-                stroke="#00C2FF"
-                strokeWidth={2.5}
-                name="OEE Score"
+              <Bar
+                dataKey="count"
+                fill="#00C2FF"
+                radius={[6, 6, 0, 0]}
+                name="Work orders"
               />
-              <Line
-                type="monotone"
-                dataKey="uptime"
-                stroke="#18C37E"
-                strokeWidth={2.5}
-                name="Uptime"
-              />
-            </LineChart>
+            </BarChart>
           </ResponsiveContainer>
         </Card>
 
-        <Card title="Department Performance">
+        <Card title="Records Requiring Attention">
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={deptPerformance}>
+            <BarChart
+              data={[
+                { category: "Assets", count: criticalAssets },
+                { category: "Work orders", count: activeWorkOrders },
+                { category: "NCRs", count: openNcrs },
+                { category: "Compliance", count: complianceAttention },
+              ]}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="d" fontSize={11} />
+              <XAxis dataKey="category" fontSize={11} />
               <YAxis fontSize={11} />
               <Tooltip />
               <Bar
-                dataKey="v"
+                dataKey="count"
                 fill="#00C2FF"
                 radius={[6, 6, 0, 0]}
-                name="Score"
+                name="Records"
               />
             </BarChart>
           </ResponsiveContainer>

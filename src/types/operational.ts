@@ -78,6 +78,11 @@ export interface Inspection {
   assignee_ids?: string[];
   created_by?: string;
   completed_at?: string;
+  scope?: string;
+  result?: string;
+  findings?: string;
+  completed_late?: boolean;
+  delay_reason?: string;
 }
 
 export interface Reminder {

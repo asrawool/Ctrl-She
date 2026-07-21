@@ -8,7 +8,7 @@ import { ensureAuthHydrated, useAuth } from "@/store/auth";
 import { supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/auth/verify")({
-  head: () => ({ meta: [{ title: "Verify OTP — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Verify OTP — SynapseAi" }] }),
   beforeLoad: async () => {
     if (typeof window !== "undefined") {
       await ensureAuthHydrated();

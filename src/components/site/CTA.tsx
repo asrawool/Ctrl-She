@@ -20,8 +20,8 @@ export function CTA() {
               </h2>
               <p className="mt-4 text-white/70 max-w-xl">
                 See a live walkthrough with your own sample documents. Our
-                solution architects will map IntelliPlant AI to your plant's
-                workflows in 30 minutes.
+                solution architects will map SynapseAi to your plant's workflows
+                in 30 minutes.
               </p>
             </div>
             <div className="flex flex-col gap-3 md:items-end">

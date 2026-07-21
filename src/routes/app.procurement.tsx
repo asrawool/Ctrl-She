@@ -26,7 +26,7 @@ import { hasPermission } from "@/services/rbac";
 import { PurchaseRequest, Asset } from "@/types/operational";
 
 export const Route = createFileRoute("/app/procurement")({
-  head: () => ({ meta: [{ title: "Procurement Workflow — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "Procurement Workflow — SynapseAi" }] }),
   component: ProcurementPage,
 });
 
@@ -358,7 +358,7 @@ function ProcurementPage() {
           <h3 className="font-display font-semibold">
             Purchase Request Ledger
           </h3>
-          <Button size="xs" variant="outline" onClick={fetchData}>
+          <Button size="sm" variant="outline" onClick={fetchData}>
             <RefreshCw className="h-3 w-3 mr-1" /> Reload
           </Button>
         </div>
@@ -460,7 +460,7 @@ function ProcurementPage() {
                           </div>
                         ) : req.status === "Procured" ? (
                           <Button
-                            size="xs"
+                            size="sm"
                             variant="outline"
                             className="text-[10px] px-1.5 h-6 text-accent border-accent/20"
                             onClick={() => {
@@ -482,7 +482,7 @@ function ProcurementPage() {
                           {canApprove && req.status === "Pending" && (
                             <>
                               <Button
-                                size="xs"
+                                size="sm"
                                 variant="outline"
                                 className="h-6 px-1.5 text-emerald border-emerald/20 bg-emerald/5 hover:bg-emerald/10 text-[10px]"
                                 onClick={() => handleApprove(req.id)}
@@ -490,7 +490,7 @@ function ProcurementPage() {
                                 Approve
                               </Button>
                               <Button
-                                size="xs"
+                                size="sm"
                                 variant="outline"
                                 className="h-6 px-1.5 text-destructive border-destructive/20 bg-destructive/5 hover:bg-destructive/10 text-[10px]"
                                 onClick={() => handleReject(req.id)}
@@ -498,7 +498,7 @@ function ProcurementPage() {
                                 Reject
                               </Button>
                               <Button
-                                size="xs"
+                                size="sm"
                                 variant="outline"
                                 className="h-6 px-1.5 text-yellow-600 border-yellow-500/20 bg-yellow-500/5 hover:bg-yellow-500/10 text-[10px]"
                                 onClick={() => {
@@ -513,7 +513,7 @@ function ProcurementPage() {
                           {/* Plant Manager Procurement Flow */}
                           {canApprove && req.status === "Approved" && (
                             <Button
-                              size="xs"
+                              size="sm"
                               className="h-6 px-1.5 text-[10px] btn-hero"
                               onClick={() => handleMarkProcured(req.id)}
                             >

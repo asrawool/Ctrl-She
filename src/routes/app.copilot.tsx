@@ -41,7 +41,7 @@ import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/copilot")({
-  head: () => ({ meta: [{ title: "AI Copilot — IntelliPlant AI" }] }),
+  head: () => ({ meta: [{ title: "AI Copilot — SynapseAi" }] }),
   component: Copilot,
 });
 
@@ -126,12 +126,9 @@ interface DbMessage {
   action_result?: Record<string, unknown> | null;
 }
 
-const SUGGESTIONS = [
-  "Why did Pump P-401 fail last month?",
-  "Summarize ISO 9001 audit findings",
-  "Recommend lubrication interval for compressors",
-  "What SOPs apply to reactor start-up?",
-];
+// Replace these entries with the finalized, document-specific prompts when ready.
+// The existing clickable behavior intentionally remains unchanged.
+const SUGGESTIONS: string[] = [];
 
 function Copilot() {
   const [convs, setConvs] = useState<Conv[]>([]);
@@ -744,7 +741,7 @@ function Copilot() {
 
     activeConv.messages.forEach((msg) => {
       const isUser = msg.role === "user";
-      const sender = isUser ? "You" : "IntelliPlant Copilot";
+      const sender = isUser ? "You" : "SynapseAi Copilot";
       markdown += `### ${sender}\n`;
       markdown += `${msg.text}\n\n`;
 
@@ -1528,7 +1525,7 @@ function Copilot() {
   return (
     <>
       <PageHeader
-        title="IntelliPlant Copilot"
+        title="SynapseAi Copilot"
         description="Interact with the ground-truth knowledge base of all plant manuals, engineering specifications, and historical incident logs."
       />
 
@@ -1695,7 +1692,7 @@ function Copilot() {
               <Bot className="h-4.5 w-4.5" />
             </div>
             <div className="flex-1">
-              <div className="font-semibold text-sm">IntelliPlant Copilot</div>
+              <div className="font-semibold text-sm">SynapseAi Copilot</div>
               <div className="text-[11px] text-muted-foreground">
                 {groundedCount === null ? (
                   <span className="inline-block h-3 w-16 bg-muted animate-pulse rounded" />
