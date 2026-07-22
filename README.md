@@ -353,24 +353,19 @@ VITE_SUPABASE_ANON_KEY=your_supabase_key
 
 ---
 
-# 📸 Screenshots
+## 📸 Project Screenshots
 
-```
-docs/
+### Synapse
+![Synapse](Synapse.png)
 
-├── SynapseAi.jpeg
+### Roles Explanation
+![Roles Explanation](Roles_explanation.jpeg)
 
-├── dashboard.png
+### Explanation 2
+![Explanation 2](Explanation2.jpeg)
 
-├── assets.png
-
-├── ai-chat.png
-
-├── analytics.png
-
-├── compliance.png
-
-```
+### Explanation 3
+![Explanation 3](Explanation3.jpeg)
 
 ---
 
