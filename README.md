@@ -35,7 +35,6 @@ Industrial organizations face several challenges:
 Ctrl+She solves these challenges by creating a unified AI-powered industrial knowledge hub.
 
 ---
----
 
 # 💡 Our Solution
 
