@@ -6,10 +6,8 @@
 👉 https://ctrl-she.vercel.app
 
 🎥 **Project Demo Video:**  
-👉 *(Add your YouTube/Google Drive/Loom link here)*
+👉 (https://drive.google.com/drive/folders/1CMPMVG6EmxGlR0JImjYzfXSGg95Ay-Og)
 
-📑 **Presentation (Optional):**  
-👉 *(Add your PPT/PDF link here)*
 
 ---
 
