@@ -359,7 +359,7 @@ VITE_SUPABASE_ANON_KEY=your_supabase_key
 ![Synapse](SynapseAI.png)
 
 ### Roles Explanation
-![Roles Explanation](Roles_explanation.jpeg)
+![Roles Explanation](Roles_explanantion.jpeg)
 
 ### Explanation 2
 ![Explanation 2](Explanation2.jpeg)
